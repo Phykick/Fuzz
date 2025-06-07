@@ -1,0 +1,1034 @@
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local ContextActionService = game:GetService("ContextActionService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local CollectionService = game:GetService("CollectionService")
+
+local player = game.Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+-- Helper to wait for child with timeout
+local function WaitForChildTimeout(parent, childName, timeout)
+	local child = parent:FindFirstChild(childName)
+	local elapsed = 0
+	local interval = 0.1
+	while not child and elapsed < timeout do
+		wait(interval)
+		elapsed = elapsed + interval
+		child = parent:FindFirstChild(childName)
+	end
+	return child
+end
+
+local screenGui = WaitForChildTimeout(playerGui, "FruitNinjaGui", 5)
+if not screenGui then
+	warn("FruitNinjaGui not found in PlayerGui!")
+	return
+end
+
+local viewport = WaitForChildTimeout(screenGui, "GameViewport", 5)
+if not viewport then
+	warn("GameViewport not found inside FruitNinjaGui!")
+	return
+end
+
+local fruitsFolder = WaitForChildTimeout(viewport, "FruitsFolder", 5)
+if not fruitsFolder then
+	warn("FruitsFolder not found inside GameViewport!")
+	return
+end
+
+-- Add PowerUpModels folder reference
+local powerUpModelsFolder = ReplicatedStorage:WaitForChild("PowerUpModels", 5)
+local fruitModelsFolder = ReplicatedStorage:WaitForChild("FruitModels")
+local bombModelsFolder = ReplicatedStorage:WaitForChild("BombModels", 5)
+local splashEffectsFolder = ReplicatedStorage:WaitForChild("SplashEffects", 5)
+
+-- Setup UI for score, lives, combo, and high score
+local uiFrame = Instance.new("Frame")
+uiFrame.Name = "GameUI"
+uiFrame.Size = UDim2.new(0, 200, 0, 130)
+uiFrame.Position = UDim2.new(0, 10, 0, 10)
+uiFrame.BackgroundTransparency = 1
+uiFrame.Parent = screenGui
+
+local scoreLabel = Instance.new("TextLabel")
+scoreLabel.Name = "ScoreLabel"
+scoreLabel.Size = UDim2.new(1, 0, 0, 30)
+scoreLabel.Position = UDim2.new(0, 0, 0, 0)
+scoreLabel.BackgroundTransparency = 1
+scoreLabel.TextColor3 = Color3.new(1, 1, 1)
+scoreLabel.TextStrokeTransparency = 0.5
+scoreLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+scoreLabel.Font = Enum.Font.SourceSansBold
+scoreLabel.TextSize = 24
+scoreLabel.Text = "Score: 0"
+scoreLabel.Parent = uiFrame
+
+local livesLabel = Instance.new("TextLabel")
+livesLabel.Name = "LivesLabel"
+livesLabel.Size = UDim2.new(1, 0, 0, 30)
+livesLabel.Position = UDim2.new(0, 0, 0, 30)
+livesLabel.BackgroundTransparency = 1
+livesLabel.TextColor3 = Color3.new(1, 0, 0)
+livesLabel.TextStrokeTransparency = 0.5
+livesLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+livesLabel.Font = Enum.Font.SourceSansBold
+livesLabel.TextSize = 24
+livesLabel.Text = "Lives: 3"
+livesLabel.Parent = uiFrame
+
+local comboLabel = Instance.new("TextLabel")
+comboLabel.Name = "ComboLabel"
+comboLabel.Size = UDim2.new(1, 0, 0, 30)
+comboLabel.Position = UDim2.new(0, 0, 0, 60)
+comboLabel.BackgroundTransparency = 1
+comboLabel.TextColor3 = Color3.new(0, 1, 0)
+comboLabel.TextStrokeTransparency = 0.5
+comboLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+comboLabel.Font = Enum.Font.SourceSansBold
+comboLabel.TextSize = 24
+comboLabel.Text = "Combo: x1"
+comboLabel.Parent = uiFrame
+
+local highScoreLabel = Instance.new("TextLabel")
+highScoreLabel.Name = "HighScoreLabel"
+highScoreLabel.Size = UDim2.new(1, 0, 0, 30)
+highScoreLabel.Position = UDim2.new(0, 0, 0, 90)
+highScoreLabel.BackgroundTransparency = 1
+highScoreLabel.TextColor3 = Color3.new(1, 1, 0)
+highScoreLabel.TextStrokeTransparency = 0.5
+highScoreLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+highScoreLabel.Font = Enum.Font.SourceSansBold
+highScoreLabel.TextSize = 24
+highScoreLabel.Text = "High Score: 0"
+highScoreLabel.Parent = uiFrame
+
+local gameOverFrame = Instance.new("Frame")
+gameOverFrame.Name = "GameOverFrame"
+gameOverFrame.Size = UDim2.new(0, 300, 0, 260)
+gameOverFrame.Position = UDim2.new(0.5, -150, 0.5, -130)
+gameOverFrame.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
+gameOverFrame.BackgroundTransparency = 0.2
+gameOverFrame.Visible = false
+gameOverFrame.Parent = screenGui
+
+local gameOverLabel = Instance.new("TextLabel")
+gameOverLabel.Size = UDim2.new(1, 0, 0, 50)
+gameOverLabel.Position = UDim2.new(0, 0, 0, 20)
+gameOverLabel.BackgroundTransparency = 1
+gameOverLabel.TextColor3 = Color3.new(1, 0, 0)
+gameOverLabel.TextStrokeTransparency = 0.5
+gameOverLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+gameOverLabel.Font = Enum.Font.SourceSansBold
+gameOverLabel.TextSize = 36
+gameOverLabel.Text = "Game Over!"
+gameOverLabel.Parent = gameOverFrame
+
+local finalScoreLabel = Instance.new("TextLabel")
+finalScoreLabel.Size = UDim2.new(1, 0, 0, 30)
+finalScoreLabel.Position = UDim2.new(0, 0, 0, 70)
+finalScoreLabel.BackgroundTransparency = 1
+finalScoreLabel.TextColor3 = Color3.new(1, 1, 1)
+finalScoreLabel.TextStrokeTransparency = 0.5
+finalScoreLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+finalScoreLabel.Font = Enum.Font.SourceSansBold
+finalScoreLabel.TextSize = 24
+finalScoreLabel.Text = "Final Score: 0"
+finalScoreLabel.Parent = gameOverFrame
+
+local finalHighScoreLabel = Instance.new("TextLabel")
+finalHighScoreLabel.Size = UDim2.new(1, 0, 0, 30)
+finalHighScoreLabel.Position = UDim2.new(0, 0, 0, 100)
+finalHighScoreLabel.BackgroundTransparency = 1
+finalHighScoreLabel.TextColor3 = Color3.new(1, 1, 0)
+finalHighScoreLabel.TextStrokeTransparency = 0.5
+finalHighScoreLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+finalHighScoreLabel.Font = Enum.Font.SourceSansBold
+finalHighScoreLabel.TextSize = 24
+finalHighScoreLabel.Text = "High Score: 0"
+finalHighScoreLabel.Parent = gameOverFrame
+
+local newHighScoreLabel = Instance.new("TextLabel")
+newHighScoreLabel.Size = UDim2.new(1, 0, 0, 30)
+newHighScoreLabel.Position = UDim2.new(0, 0, 0, 130)
+newHighScoreLabel.BackgroundTransparency = 1
+newHighScoreLabel.TextColor3 = Color3.new(1, 1, 0)
+newHighScoreLabel.TextStrokeTransparency = 0.5
+newHighScoreLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+newHighScoreLabel.Font = Enum.Font.Cartoon
+newHighScoreLabel.TextSize = 24
+newHighScoreLabel.Text = "New All-Time Best!"
+newHighScoreLabel.Visible = false
+newHighScoreLabel.Parent = gameOverFrame
+
+local restartButton = Instance.new("TextButton")
+restartButton.Size = UDim2.new(0, 100, 0, 40)
+restartButton.Position = UDim2.new(0.5, -50, 0, 180)
+restartButton.BackgroundColor3 = Color3.new(0, 0.5, 0)
+restartButton.TextColor3 = Color3.new(1, 1, 1)
+restartButton.Font = Enum.Font.SourceSansBold
+restartButton.TextSize = 20
+restartButton.Text = "Restart"
+restartButton.Parent = gameOverFrame
+
+-- Game state
+local score = 0
+local lives = 3
+local comboCount = 0
+local comboMultiplier = 1
+local lastSliceTime = 0
+local highScore = 0
+local isGameOver = false
+local gameTime = 0
+local difficultyMultiplier = 1
+local SPAWN_INTERVAL_MAX = 1.0  -- Decreased from 1.2 to spawn faster
+local SPAWN_INTERVAL_MIN = 0.4  -- Decreased from 0.5 to spawn faster
+local VELOCITY_MULTIPLIER_MAX = 1.5
+local DIFFICULTY_RAMP_TIME = 30
+local BOMB_SPAWN_CHANCE_MIN = 0.08  -- Decreased from 0.10
+local BOMB_SPAWN_CHANCE_MAX = 0.12  -- Decreased from 0.15
+
+-- Cache models
+local fruitModelCache = {}
+
+-- RemoteEvent for high score
+local highScoreEvent = ReplicatedStorage:WaitForChild("HighScoreEvent", 5)
+if not highScoreEvent then
+	warn("HighScoreEvent not found in ReplicatedStorage!")
+	return
+end
+
+-- Load high score
+local function loadHighScore()
+	highScoreEvent:FireServer("Load")
+	print("Client: Requested high score load")
+end
+
+-- Save high score
+local personally
+local function saveHighScore()
+	highScoreEvent:FireServer("Save", score)
+	print("Client: Requested high score save with score:", score)
+end
+
+-- Handle server responses
+highScoreEvent.OnClientEvent:Connect(function(action, value)
+	if action == "LoadResponse" then
+		highScore = value
+		highScoreLabel.Text = "High Score: " .. highScore
+		finalHighScoreLabel.Text = "High Score: " .. highScore
+		newHighScoreLabel.Visible = false
+		print("Client: Received high score:", highScore)
+	elseif action == "SaveResponse" then
+		local oldHighScore = highScore
+		highScore = value
+		highScoreLabel.Text = "High Score: " .. highScore
+		finalHighScoreLabel.Text = "High Score: " .. highScore
+		if value > oldHighScore then
+			newHighScoreLabel.Visible = true
+			local sound = Instance.new("Sound")
+			sound.SoundId = "rbxassetid://1839667729"
+			sound.Volume = 0.6
+			sound.Parent = fruitsFolder
+			sound:Play()
+			spawn(function()
+				wait(2)
+				sound:Destroy()
+			end)
+			print("Playing sound: NewHighScore")
+		else
+			newHighScoreLabel.Visible = false
+		end
+		print("Client: High score updated to:", highScore)
+	end
+end)
+
+-- Load high score on start
+loadHighScore()
+
+-- Combo animation
+local function animateCombo()
+	local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local growTween = TweenService:Create(comboLabel, tweenInfo, {Size = UDim2.new(1.2, 0, 0, 36)})
+	local shrinkTween = TweenService:Create(comboLabel, tweenInfo, {Size = UDim2.new(1, 0, 0, 30)})
+	growTween:Play()
+	growTween.Completed:Connect(function()
+		shrinkTween:Play()
+	end)
+	print("Combo animation triggered")
+end
+
+-- Slice animation for fruits
+local function animateFruitSlice(fruit, sliceDir)
+	if not fruit.PrimaryPart then return end
+	print("Fruit slice animation triggered for:", fruit.Name)
+
+	-- Play slash sound
+	local sound = Instance.new("Sound")
+	sound.SoundId = "rbxassetid://935843979"
+	sound.Volume = 0.5
+	sound.Parent = fruitsFolder
+	sound:Play()
+	spawn(function()
+		wait(0.5)
+		sound:Destroy()
+	end)
+	print("Playing sound: SwordSlash")
+
+	-- Check for pre-made half models
+	local half1, half2
+	local fruitModel = fruitModelCache[fruit.Name] or fruitModelsFolder:FindFirstChild(fruit.Name)
+	if fruitModel then
+		fruitModelCache[fruit.Name] = fruitModel
+		local half1Model = fruitModel:FindFirstChild("Half1")
+		local half2Model = fruitModel:FindFirstChild("Half2")
+		if half1Model and half2Model then
+			half1 = half1Model:Clone()
+			half2 = half2Model:Clone()
+			CollectionService:AddTag(half1, "Sliced")
+			CollectionService:AddTag(half2, "Sliced")
+			print("Using pre-made halves for:", fruit.Name)
+		end
+	end
+
+	-- Fallback to cloning and offsetting
+	if not (half1 and half2) then
+		half1 = fruit:Clone()
+		half2 = fruit:Clone()
+		CollectionService:AddTag(half1, "Sliced")
+		CollectionService:AddTag(half2, "Sliced")
+		local offset = sliceDir.Unit * 0.25
+		for _, part in pairs(half1:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.CFrame = part.CFrame * CFrame.new(offset)
+				part.Transparency = part.Transparency + 0.1
+			end
+		end
+		for _, part in pairs(half2:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.CFrame = part.CFrame * CFrame.new(-offset)
+				part.Transparency = part.Transparency + 0.1
+			end
+		end
+		print("Using cloned halves for:", fruit.Name)
+	end
+
+	half1.Parent = fruitsFolder
+	half2.Parent = fruitsFolder
+
+	-- Particle splash
+	local emitter
+	if splashEffectsFolder then
+		local customEmitter = splashEffectsFolder:FindFirstChild(fruit.Name)
+		if customEmitter and customEmitter:IsA("ParticleEmitter") then
+			local splashPart = Instance.new("Part")
+			splashPart.Anchored = true
+			splashPart.CanCollide = false
+			splashPart.Transparency = 1
+			splashPart.Size = Vector3.new(0.1, 0.1, 0.1)
+			splashPart.CFrame = fruit.PrimaryPart.CFrame
+			splashPart.Parent = fruitsFolder
+			emitter = customEmitter:Clone()
+			emitter.Parent = splashPart
+			print("Using custom splash effect for:", fruit.Name)
+			spawn(function()
+				wait(0.1)
+				emitter.Enabled = false
+				wait(1)
+				splashPart:Destroy()
+			end)
+		else
+			print("No splash effect found for:", fruit.Name)
+		end
+	else
+		print("SplashEffects folder not found")
+	end
+
+	-- Tween animation with shrinking
+	local tweenInfo = TweenInfo.new(0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local function tweenHalf(half, direction)
+		if not half.PrimaryPart then return end
+		local startCFrame = half.PrimaryPart.CFrame
+		local endPos = startCFrame.Position + direction * 3 + Vector3.new(0, -2, 0)
+		local endCFrame = CFrame.new(endPos) * CFrame.Angles(math.rad(math.random(-180, 180)), math.rad(math.random(-180, 180)), math.rad(math.random(-180, 180)))
+		local scaleDown = TweenService:Create(half.PrimaryPart, tweenInfo, {Size = half.PrimaryPart.Size * 0.1})
+		local moveTween = TweenService:Create(half.PrimaryPart, tweenInfo, {CFrame = endCFrame})
+		for _, part in pairs(half:GetDescendants()) do
+			if part:IsA("BasePart") then
+				TweenService:Create(part, tweenInfo, {Transparency = 1}):Play()
+			end
+		end
+		scaleDown:Play()
+		moveTween:Play()
+		moveTween.Completed:Connect(function()
+			half:Destroy()
+		end)
+	end
+
+	-- Animate halves
+	local normal = sliceDir:Cross(Vector3.new(0, 1, 0))
+	tweenHalf(half1, normal * 1.5)
+	tweenHalf(half2, -normal * 1.5)
+
+	-- Remove original fruit
+	fruit:Destroy()
+end
+
+-- Bomb explosion animation
+local function animateBombExplosion(bomb)
+	if not bomb.PrimaryPart then return end
+	print("Bomb explosion triggered for:", bomb.Name)
+
+	-- Play bomb explosion sound
+	local sound = Instance.new("Sound")
+	sound.SoundId = "rbxassetid://18976055039"
+	sound.Volume = 1.0
+	sound.Parent = fruitsFolder
+	sound:Play()
+	spawn(function()
+		wait(1.5)
+		sound:Destroy()
+	end)
+	print("Playing sound: BombExplosion")
+
+	-- Explosion effect
+	local emitter
+	if splashEffectsFolder then
+		local customEmitter = splashEffectsFolder:FindFirstChild("Bomb")
+		if customEmitter and customEmitter:IsA("ParticleEmitter") then
+			local splashPart = Instance.new("Part")
+			splashPart.Anchored = true
+			splashPart.CanCollide = false
+			splashPart.Transparency = 1
+			splashPart.Size = Vector3.new(0.1, 0.1, 0.1)
+			splashPart.CFrame = bomb.PrimaryPart.CFrame
+			splashPart.Parent = fruitsFolder
+			emitter = customEmitter:Clone()
+			emitter.Parent = splashPart
+			print("Using custom explosion effect for Bomb")
+			spawn(function()
+				wait(0.1)
+				emitter.Enabled = false
+				wait(1)
+				splashPart:Destroy()
+			end)
+		else
+			print("No explosion effect found for Bomb")
+		end
+	else
+		print("SplashEffects folder not found")
+	end
+
+	-- Scale up and fade out
+	local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local scaleUp = TweenService:Create(bomb.PrimaryPart, tweenInfo, {Size = bomb.PrimaryPart.Size * 1.5})
+	for _, part in pairs(bomb:GetDescendants()) do
+		if part:IsA("BasePart") then
+			TweenService:Create(part, tweenInfo, {Transparency = 1}):Play()
+		end
+	end
+	scaleUp:Play()
+	scaleUp.Completed:Connect(function()
+		bomb:Destroy()
+	end)
+end
+
+-- Game over flash
+local function triggerGameOverFlash()
+	local flash = Instance.new("Frame")
+	flash.Size = UDim2.new(1, 0, 1, 0)
+	flash.Position = UDim2.new(0, 0, 0, 0)
+	flash.BackgroundColor3 = Color3.new(1, 0, 0)
+	flash.BackgroundTransparency = 0.5
+	flash.ZIndex = 9
+	flash.Parent = screenGui
+	local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local fadeTween = TweenService:Create(flash, tweenInfo, {BackgroundTransparency = 1})
+	fadeTween:Play()
+	fadeTween.Completed:Connect(function()
+		flash:Destroy()
+	end)
+	print("Showing game over flash")
+end
+
+-- Print viewport size for debugging
+print("Viewport AbsoluteSize:", viewport.AbsoluteSize)
+
+-- Hide player character and freeze it
+local function hideCharacter(character)
+	for _, part in pairs(character:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Transparency = 1
+			part.CanCollide = false
+			part.Anchored = true
+		elseif part:IsA("Decal") then
+			part.Transparency = 1
+		elseif part:IsA("Accessory") then
+			local handle = part:FindFirstChild("Handle")
+			if handle then
+				handle.Transparency = 1
+				handle.CanCollide = false
+				handle.Anchored = true
+			end
+		end
+	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.WalkSpeed = 0
+		humanoid.JumpPower = 0
+	end
+end
+
+local character = player.Character or player.CharacterAdded:Wait()
+hideCharacter(character)
+character.DescendantAdded:Connect(function(descendant)
+	if descendant:IsA("BasePart") then
+		descendant.Transparency = 1
+		descendant.CanCollide = false
+		descendant.Anchored = true
+	elseif descendant:IsA("Decal") then
+		descendant.Transparency = 1
+	elseif descendant:IsA("Accessory") then
+		local handle = descendant:FindFirstChild("Handle")
+		if handle then
+			handle.Transparency = 1
+			handle.CanCollide = false
+			handle.Anchored = true
+		end
+	end
+end)
+player.CharacterAdded:Connect(function(character)
+	hideCharacter(character)
+	character.DescendantAdded:Connect(function(descendant)
+		if descendant:IsA("BasePart") then
+			descendant.Transparency = 1
+			descendant.CanCollide = false
+			descendant.Anchored = true
+		elseif descendant:IsA("Decal") then
+			descendant.Transparency = 1
+		elseif descendant:IsA("Accessory") then
+			local handle = descendant:FindFirstChild("Handle")
+			if handle then
+				handle.Transparency = 1
+				handle.CanCollide = false
+				handle.Anchored = true
+			end
+		end
+	end)
+end)
+
+-- Setup viewport camera
+local viewportCamera = Instance.new("Camera")
+viewportCamera.Name = "ViewportCamera"
+viewportCamera.CFrame = CFrame.new(Vector3.new(0, 0, -30), Vector3.new(0, 0, 0))
+viewportCamera.FieldOfView = 70
+viewportCamera.Parent = viewport
+viewport.CurrentCamera = viewportCamera
+
+local fruitVelocities = {}
+local GRAVITY = 20
+
+-- Function to show "Extra Life Gained!" message
+local function showPowerupMessage()
+	local message = Instance.new("TextLabel")
+	message.Size = UDim2.new(0, 300, 0, 50)
+	message.Position = UDim2.new(0.5, -150, 0, 50)  -- Top center
+	message.BackgroundTransparency = 1
+	message.Text = "Extra Life Gained!"
+	message.TextColor3 = Color3.new(0, 1, 0)
+	message.TextStrokeTransparency = 0.5
+	message.TextStrokeColor3 = Color3.new(0, 0, 0)
+	message.Font = Enum.Font.Cartoon
+	message.TextSize = 48
+	message.ZIndex = 11
+	message.Parent = screenGui
+
+	local tweenInfo = TweenInfo.new(2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+	local fadeTween = TweenService:Create(message, tweenInfo, {TextTransparency = 1, TextStrokeTransparency = 1})
+	fadeTween:Play()
+	fadeTween.Completed:Connect(function()
+		message:Destroy()
+	end)
+end
+
+-- Modified spawnObject function
+local function spawnObject()
+	if isGameOver then return end
+
+	local t = math.clamp(gameTime / DIFFICULTY_RAMP_TIME, 0, 1)
+	local bombChance = BOMB_SPAWN_CHANCE_MIN + (BOMB_SPAWN_CHANCE_MAX - BOMB_SPAWN_CHANCE_MIN) * t
+	local healingPearChance = (lives < 3) and 0.05 or 0  -- Changed back to 5%
+
+	local r = math.random()
+	local template, tag
+
+	if r < healingPearChance then
+		local powerUpList = powerUpModelsFolder:GetChildren()
+		if #powerUpList == 0 then
+			warn("No power-up models found in PowerUpModels folder!")
+			return
+		end
+		template = powerUpList[math.random(1, #powerUpList)]
+		tag = "HealingPear"
+	elseif r < healingPearChance + bombChance then
+		local bombModelList = bombModelsFolder:GetChildren()
+		if #bombModelList == 0 then
+			warn("No bomb models found in BombModels folder!")
+			return
+		end
+		template = bombModelList[math.random(1, #bombModelList)]
+		tag = "Bomb"
+	else
+		local fruitModelList = fruitModelsFolder:GetChildren()
+		if #fruitModelList == 0 then
+			warn("No fruit models found in FruitModels folder!")
+			return
+		end
+		template = fruitModelList[math.random(1, #fruitModelList)]
+		tag = "Fruit"
+	end
+
+	if not template then
+		warn("No model found to spawn!")
+		return
+	end
+
+	local object = template:Clone()
+	CollectionService:AddTag(object, tag)
+	object.Parent = fruitsFolder
+
+	-- Ensure PrimaryPart is set
+	if not object.PrimaryPart then
+		for _, part in pairs(object:GetDescendants()) do
+			if part:IsA("BasePart") then
+				object.PrimaryPart = part
+				break
+			end
+		end
+	end
+
+	if not object.PrimaryPart then
+		warn("Object model missing PrimaryPart, destroying object:", object.Name)
+		object:Destroy()
+		return
+	end
+
+	-- Random spawn side: 1=bottom, 2=left, 3=right
+	local side = math.random(1, 3)
+	local startX, startY, startZ, velocity
+	if side == 1 then -- Bottom
+		startX = math.random(-10, 10)
+		startY = -15
+		startZ = 5
+		velocity = Vector3.new(math.random(-3, 3), math.random(15, 20) * difficultyMultiplier, math.random(-2, 2))
+	elseif side == 2 then -- Left
+		startX = -15
+		startY = math.random(-5, 0)
+		startZ = 5
+		velocity = Vector3.new(math.random(3, 6), math.random(10, 15) * difficultyMultiplier, math.random(-2, 2))
+	else -- Right
+		startX = 15
+		startY = math.random(-5, 0)
+		startZ = 5
+		velocity = Vector3.new(math.random(-6, -3), math.random(10, 15) * difficultyMultiplier, math.random(-2, 2))
+	end
+
+	object:SetPrimaryPartCFrame(CFrame.new(startX, startY, startZ))
+
+	for _, part in pairs(object:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Anchored = true
+			part.CanCollide = false
+		end
+	end
+
+	fruitVelocities[object] = velocity
+	print("Spawned", tag, ":", object.Name, "at", startX, startY, startZ, "with velocity:", velocity, "from side:", side)
+end
+
+-- Spawn objects with increasing frequency
+spawn(function()
+	while true do
+		if not isGameOver then
+			local t = math.clamp(gameTime / DIFFICULTY_RAMP_TIME, 0, 1)
+			local spawnInterval = SPAWN_INTERVAL_MAX - (SPAWN_INTERVAL_MAX - SPAWN_INTERVAL_MIN) * t
+			spawnObject()
+			wait(spawnInterval)
+		else
+			wait(1)
+		end
+	end
+end)
+
+-- Update difficulty and move objects
+RunService.Heartbeat:Connect(function(dt)
+	if isGameOver then return end
+	gameTime = gameTime + dt
+	local t = math.clamp(gameTime / DIFFICULTY_RAMP_TIME, 0, 1)
+	difficultyMultiplier = 1 + (VELOCITY_MULTIPLIER_MAX - 1) * t
+
+	for object, velocity in pairs(fruitVelocities) do
+		if object and object.Parent and object.PrimaryPart then
+			-- Apply gravity
+			velocity = Vector3.new(velocity.X, velocity.Y - GRAVITY * dt, velocity.Z)
+			fruitVelocities[object] = velocity
+
+			-- Update position
+			local newCFrame = object.PrimaryPart.CFrame + velocity * dt
+			object:SetPrimaryPartCFrame(newCFrame)
+
+			-- Check bounds
+			local pos = object.PrimaryPart.Position
+			if pos.Y < -20 or pos.Y > 20 or math.abs(pos.X) > 20 or math.abs(pos.Z) > 20 then
+				if CollectionService:HasTag(object, "Fruit") then
+					if lives > 0 then
+						lives = lives - 1
+						livesLabel.Text = "Lives: " .. lives
+						print("Lost life, lives:", lives)
+						if lives <= 0 then
+							isGameOver = true
+							gameOverFrame.Visible = true
+							finalScoreLabel.Text = "Final Score: " .. score
+							triggerGameOverFlash()
+							saveHighScore()
+							print("Game Over! Final Score:", score, "High Score:", highScore)
+						end
+					end
+				end
+				object:Destroy()
+				fruitVelocities[object] = nil
+			end
+		else
+			fruitVelocities[object] = nil
+		end
+	end
+end)
+
+-- Slice trail container
+local trailFolder = screenGui:FindFirstChild("SliceTrailFolder")
+if not trailFolder then
+	trailFolder = Instance.new("Folder")
+	trailFolder.Name = "SliceTrailFolder"
+	trailFolder.Parent = screenGui
+end
+
+local function createLineSegment()
+	local line = Instance.new("Frame")
+	line.AnchorPoint = Vector2.new(0, 0.5)
+	line.BackgroundColor3 = Color3.new(1, 1, 1)
+	line.BackgroundTransparency = 0.4
+	line.BorderSizePixel = 0
+	line.ZIndex = 10
+	line.Size = UDim2.new(0, 0, 0, 3)
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 2)
+	corner.Parent = line
+	line.Parent = trailFolder
+	return line
+end
+
+local slicePoints = {}
+local lineSegments = {}
+local maxPoints = 20
+local mouseDown = false
+
+-- Disable camera rotation on right-click using ContextActionService
+local function handleRightClick(actionName, inputState, inputObject)
+	if isGameOver then return Enum.ContextActionResult.Pass end
+	if inputState == Enum.UserInputState.Begin then
+		print("Right-click detected, sinking input to prevent camera rotation")
+		return Enum.ContextActionResult.Sink
+	end
+	return Enum.ContextActionResult.Pass
+end
+
+ContextActionService:BindAction("BlockCameraRotation", handleRightClick, false, Enum.UserInputType.MouseButton2)
+
+-- Handle left-click for slicing
+UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+	if isGameOver or gameProcessedEvent then return end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		mouseDown = true
+		for _, seg in pairs(lineSegments) do
+			seg:Destroy()
+		end
+		lineSegments = {}
+		slicePoints = {}
+		print("Slice started")
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input, gameProcessedEvent)
+	if isGameOver or gameProcessedEvent then return end
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		mouseDown = false
+		for _, seg in pairs(lineSegments) do
+			seg:Destroy()
+		end
+		lineSegments = {}
+		slicePoints = {}
+		print("Slice ended")
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input, gameProcessedEvent)
+	if isGameOver or gameProcessedEvent then return end
+	if mouseDown and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local mousePos = UserInputService:GetMouseLocation()
+		local viewportPos = viewport.AbsolutePosition
+		local viewportSize = viewport.AbsoluteSize
+
+		local relativePos = Vector2.new(mousePos.X - viewportPos.X, mousePos.Y - viewportPos.Y)
+
+		-- Only add points if inside viewport bounds
+		if relativePos.X >= 0 and relativePos.X <= viewportSize.X and
+			relativePos.Y >= 0 and relativePos.Y <= viewportSize.Y then
+			table.insert(slicePoints, relativePos)
+			if #slicePoints > maxPoints then
+				table.remove(slicePoints, 1)
+			end
+			print("Slice point added:", relativePos)
+		end
+
+		for _, seg in pairs(lineSegments) do
+			seg:Destroy()
+		end
+		lineSegments = {}
+
+		for i = 2, #slicePoints do
+			local p1 = slicePoints[i - 1]
+			local p2 = slicePoints[i]
+			local delta = p2 - p1
+			local length = delta.Magnitude
+
+			local line = createLineSegment()
+			line.Position = UDim2.new(0, p1.X, 0, p1.Y)
+			line.Size = UDim2.new(0, length, 0, 3)
+			line.Rotation = math.deg(math.atan2(delta.Y, delta.X))
+
+			table.insert(lineSegments, line)
+		end
+	end
+end)
+
+-- Helper: distance from point to line segment
+local function pointToSegmentDistance(p, v, w)
+	local l2 = (w - v).Magnitude^2
+	if l2 == 0 then return (p - v).Magnitude end
+	local t = math.clamp((p - v):Dot(w - v) / l2, 0, 1)
+	local projection = v + (w - v) * t
+	return (p - projection).Magnitude
+end
+
+-- Use viewportCamera for projection
+local projectionCamera = viewportCamera
+
+local function checkSlices()
+	if isGameOver then return end
+	if #slicePoints < 2 then
+		print("Not enough slice points:", #slicePoints)
+		return
+	end
+
+	local viewportPos = viewport.AbsolutePosition
+	local viewportSize = viewport.AbsoluteSize
+	local currentTime = tick()
+
+	-- Check combo timer
+	if currentTime - lastSliceTime > 1 then
+		comboCount = 0
+		comboMultiplier = 1
+		comboLabel.Text = "Combo: x1"
+		print("Combo reset")
+	end
+
+	for _, object in pairs(fruitsFolder:GetChildren()) do
+		if object and object.PrimaryPart and not CollectionService:HasTag(object, "Sliced") then
+			local worldPos = object.PrimaryPart.Position
+			local screenPos, onScreen = projectionCamera:WorldToViewportPoint(worldPos)
+			print("Object:", object.Name, "WorldPos:", worldPos, "ScreenPos:", screenPos, "OnScreen:", onScreen)
+
+			if onScreen and screenPos.Z > 0 then
+				-- Scale normalized coordinates to pixel coordinates
+				local object2D = Vector2.new(screenPos.X * viewportSize.X, screenPos.Y * viewportSize.Y)
+				-- Adjust by viewport position to match slicePoints
+				object2D = object2D + viewportPos
+
+				-- Check if object2D is within viewport bounds
+				if object2D.X >= viewportPos.X and object2D.X <= viewportPos.X + viewportSize.X and
+					object2D.Y >= viewportPos.Y and object2D.Y <= viewportPos.Y + viewportSize.Y then
+					for i = 2, #slicePoints do
+						local p1 = slicePoints[i - 1]
+						local p2 = slicePoints[i]
+						local dist = pointToSegmentDistance(object2D, p1, p2)
+						local hitThreshold = CollectionService:HasTag(object, "Bomb") and 100 or 80  -- Increased from 80 to 100 for bombs only
+						print("Object2D:", object2D, "Slice P1:", p1, "P2:", p2, "Distance:", dist)
+
+						if dist <= hitThreshold then
+							if CollectionService:HasTag(object, "Bomb") then
+								-- Bomb sliced: instant game over
+								animateBombExplosion(object)
+								fruitVelocities[object] = nil
+								isGameOver = true
+								gameOverFrame.Visible = true
+								finalScoreLabel.Text = "Final Score: " .. score
+								triggerGameOverFlash()
+								saveHighScore()
+								print("Sliced bomb:", object.Name, "Game Over! Final Score:", score, "High Score:", highScore)
+								return
+							elseif CollectionService:HasTag(object, "Fruit") then
+								-- Fruit sliced
+								local oldMultiplier = comboMultiplier
+								comboCount = comboCount + 1
+								if comboCount == 2 then
+									comboMultiplier = 2
+								elseif comboCount == 3 then
+									comboMultiplier = 3
+								elseif comboCount >= 4 then
+									comboMultiplier = 4
+								end
+								lastSliceTime = currentTime
+								if comboMultiplier ~= oldMultiplier then
+									comboLabel.Text = "Combo: x" .. comboMultiplier
+									animateCombo()
+									-- Combo popup
+									local popup = Instance.new("TextLabel")
+									popup.Size = UDim2.new(0, 200, 0, 50)
+									popup.Position = UDim2.new(0, object2D.X - 100, 0, object2D.Y - 25)
+									popup.BackgroundTransparency = 1
+									popup.Text = "x" .. comboMultiplier .. " COMBO!"
+									popup.TextColor3 = Color3.new(0, 1, 0)
+									popup.TextStrokeTransparency = 0.5
+									popup.TextStrokeColor3 = Color3.new(0, 0, 0)
+									popup.Font = Enum.Font.Cartoon
+									popup.TextSize = 48
+									popup.ZIndex = 11
+									popup.Parent = screenGui
+									local tweenInfo = TweenInfo.new(1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+									local moveTween = TweenService:Create(popup, tweenInfo, {Position = UDim2.new(0, object2D.X - 100, 0, object2D.Y - 100)})
+									local fadeTween = TweenService:Create(popup, tweenInfo, {TextTransparency = 1, TextStrokeTransparency = 1})
+									moveTween:Play()
+									fadeTween:Play()
+									fadeTween.Completed:Connect(function()
+										popup:Destroy()
+									end)
+									print("Showing combo popup: x" .. comboMultiplier .. " COMBO!")
+									-- Play combo sound
+									local sound = Instance.new("Sound")
+									sound.SoundId = "rbxassetid://4612377122"
+									sound.Volume = 0.5
+									sound.Parent = fruitsFolder
+									sound:Play()
+									spawn(function()
+										wait(1)
+										sound:Destroy()
+									end)
+									print("Playing sound: Combo")
+								end
+
+								-- Update score
+								local points = 100 * comboMultiplier
+								score = score + points
+								scoreLabel.Text = "Score: " .. score
+								if score > highScore then
+									saveHighScore()
+								end
+								print("Sliced fruit:", object.Name, "at", object2D, "with distance:", dist, "Points:", points, "Combo:", comboMultiplier)
+
+								-- Add score popup
+								local popup = Instance.new("TextLabel")
+								popup.Size = UDim2.new(0, 100, 0, 50)
+								popup.Position = UDim2.new(0, object2D.X - 50, 0, object2D.Y - 25)
+								popup.BackgroundTransparency = 1
+								popup.Text = "+" .. points
+								popup.TextColor3 = Color3.new(1, 1, 1)
+								popup.TextStrokeTransparency = 0.5
+								popup.TextStrokeColor3 = Color3.new(0, 0, 0)
+								popup.Font = Enum.Font.SourceSansBold
+								popup.TextSize = 36
+								popup.ZIndex = 11
+								popup.Parent = screenGui
+								local tweenInfo = TweenInfo.new(1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+								local moveTween = TweenService:Create(popup, tweenInfo, {Position = UDim2.new(0, object2D.X - 50, 0, object2D.Y - 75)})
+								local fadeTween = TweenService:Create(popup, tweenInfo, {TextTransparency = 1, TextStrokeTransparency = 1})
+								moveTween:Play()
+								fadeTween:Play()
+								fadeTween.Completed:Connect(function()
+									popup:Destroy()
+								end)
+
+								-- Animate slice
+								local sliceDir = (p2 - p1).Unit * 10
+								animateFruitSlice(object, Vector3.new(sliceDir.X, sliceDir.Y, 0))
+								fruitVelocities[object] = nil
+							elseif CollectionService:HasTag(object, "HealingPear") then
+								-- Healing pear sliced: gain extra life
+								if lives < 3 then
+									lives = lives + 1
+									livesLabel.Text = "Lives: " .. lives
+									print("Gained extra life, lives:", lives)
+									-- Show powerup message
+									showPowerupMessage()
+								end
+								-- Animate slice
+								local sliceDir = (p2 - p1).Unit * 10
+								animateFruitSlice(object, Vector3.new(sliceDir.X, sliceDir.Y, 0))
+								fruitVelocities[object] = nil
+							end
+							break
+						end
+					end
+				else
+					print("Object2D out of viewport bounds:", object2D)
+				end
+			else
+				print("Object not on screen or behind camera:", object.Name, "Z:", screenPos.Z)
+			end
+		else
+			if object then
+				print("Object ignored:", object.Name, "Sliced:", CollectionService:HasTag(object, "Sliced"))
+			end
+		end
+	end
+end
+
+RunService.Heartbeat:Connect(function()
+	if isGameOver then return end
+	if mouseDown then
+		checkSlices()
+	end
+end)
+
+-- Restart game
+restartButton.MouseButton1Click:Connect(function()
+	isGameOver = false
+	gameOverFrame.Visible = false
+	newHighScoreLabel.Visible = false
+	score = 0
+	lives = 3
+	comboCount = 0
+	comboMultiplier = 1
+	gameTime = 0
+	difficultyMultiplier = 1
+	scoreLabel.Text = "Score: 0"
+	livesLabel.Text = "Lives: 3"
+	comboLabel.Text = "Combo: x1"
+	-- Clear existing objects
+	for _, object in pairs(fruitsFolder:GetChildren()) do
+		object:Destroy()
+		fruitVelocities[object] = nil
+	end
+	for _, seg in pairs(lineSegments) do
+		seg:Destroy()
+	end
+	lineSegments = {}
+	slicePoints = {}
+	print("Game restarted")
+end)
+
+-- Cleanup on script end
+game:BindToClose(function()
+	ContextActionService:UnbindAction("BlockCameraRotation")
+end)
