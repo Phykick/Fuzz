@@ -45,133 +45,35 @@ local fruitModelsFolder = ReplicatedStorage:WaitForChild("FruitModels")
 local bombModelsFolder = ReplicatedStorage:WaitForChild("BombModels", 5)
 local splashEffectsFolder = ReplicatedStorage:WaitForChild("SplashEffects", 5)
 
--- Setup UI for score, lives, combo, and high score
-local uiFrame = Instance.new("Frame")
-uiFrame.Name = "GameUI"
-uiFrame.Size = UDim2.new(0, 200, 0, 130)
-uiFrame.Position = UDim2.new(0, 10, 0, 10)
-uiFrame.BackgroundTransparency = 1
-uiFrame.Parent = screenGui
+-- Reference existing UI elements
+local scoringGui = WaitForChildTimeout(playerGui, "Scoring", 5)
+if not scoringGui then
+	warn("Scoring GUI not found in PlayerGui!")
+	return
+end
+local scoreLabel = scoringGui:WaitForChild("ScoreLabel")
+local livesLabel = scoringGui:WaitForChild("LivesLabel")
+local comboLabel = scoringGui:WaitForChild("ComboLabel")
+local highScoreLabel = scoringGui:WaitForChild("HighScoreLabel")
 
-local scoreLabel = Instance.new("TextLabel")
-scoreLabel.Name = "ScoreLabel"
-scoreLabel.Size = UDim2.new(1, 0, 0, 30)
-scoreLabel.Position = UDim2.new(0, 0, 0, 0)
-scoreLabel.BackgroundTransparency = 1
-scoreLabel.TextColor3 = Color3.new(1, 1, 1)
-scoreLabel.TextStrokeTransparency = 0.5
-scoreLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-scoreLabel.Font = Enum.Font.SourceSansBold
-scoreLabel.TextSize = 24
+local gameOverGui = WaitForChildTimeout(playerGui, "GameOver", 5)
+if not gameOverGui then
+	warn("GameOver GUI not found in PlayerGui!")
+	return
+end
+local gameOverFrame = gameOverGui:WaitForChild("GameOverFrame")
+local gameOverLabel = gameOverFrame:WaitForChild("GameOverLabel") -- Assuming it exists
+local finalScoreLabel = gameOverFrame:WaitForChild("FinalScoreLabel")
+local finalHighScoreLabel = gameOverFrame:WaitForChild("HighScoreLabel")
+local newHighScoreLabel = gameOverFrame:WaitForChild("NewAllTimeLabel")
+local restartButton = gameOverFrame:WaitForChild("RestartButton")
+
+-- Set initial states
 scoreLabel.Text = "Score: 0"
-scoreLabel.Parent = uiFrame
-
-local livesLabel = Instance.new("TextLabel")
-livesLabel.Name = "LivesLabel"
-livesLabel.Size = UDim2.new(1, 0, 0, 30)
-livesLabel.Position = UDim2.new(0, 0, 0, 30)
-livesLabel.BackgroundTransparency = 1
-livesLabel.TextColor3 = Color3.new(1, 0, 0)
-livesLabel.TextStrokeTransparency = 0.5
-livesLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-livesLabel.Font = Enum.Font.SourceSansBold
-livesLabel.TextSize = 24
 livesLabel.Text = "Lives: 3"
-livesLabel.Parent = uiFrame
-
-local comboLabel = Instance.new("TextLabel")
-comboLabel.Name = "ComboLabel"
-comboLabel.Size = UDim2.new(1, 0, 0, 30)
-comboLabel.Position = UDim2.new(0, 0, 0, 60)
-comboLabel.BackgroundTransparency = 1
-comboLabel.TextColor3 = Color3.new(0, 1, 0)
-comboLabel.TextStrokeTransparency = 0.5
-comboLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-comboLabel.Font = Enum.Font.SourceSansBold
-comboLabel.TextSize = 24
 comboLabel.Text = "Combo: x1"
-comboLabel.Parent = uiFrame
-
-local highScoreLabel = Instance.new("TextLabel")
-highScoreLabel.Name = "HighScoreLabel"
-highScoreLabel.Size = UDim2.new(1, 0, 0, 30)
-highScoreLabel.Position = UDim2.new(0, 0, 0, 90)
-highScoreLabel.BackgroundTransparency = 1
-highScoreLabel.TextColor3 = Color3.new(1, 1, 0)
-highScoreLabel.TextStrokeTransparency = 0.5
-highScoreLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-highScoreLabel.Font = Enum.Font.SourceSansBold
-highScoreLabel.TextSize = 24
 highScoreLabel.Text = "High Score: 0"
-highScoreLabel.Parent = uiFrame
-
-local gameOverFrame = Instance.new("Frame")
-gameOverFrame.Name = "GameOverFrame"
-gameOverFrame.Size = UDim2.new(0, 300, 0, 260)
-gameOverFrame.Position = UDim2.new(0.5, -150, 0.5, -130)
-gameOverFrame.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
-gameOverFrame.BackgroundTransparency = 0.2
 gameOverFrame.Visible = false
-gameOverFrame.Parent = screenGui
-
-local gameOverLabel = Instance.new("TextLabel")
-gameOverLabel.Size = UDim2.new(1, 0, 0, 50)
-gameOverLabel.Position = UDim2.new(0, 0, 0, 20)
-gameOverLabel.BackgroundTransparency = 1
-gameOverLabel.TextColor3 = Color3.new(1, 0, 0)
-gameOverLabel.TextStrokeTransparency = 0.5
-gameOverLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-gameOverLabel.Font = Enum.Font.SourceSansBold
-gameOverLabel.TextSize = 36
-gameOverLabel.Text = "Game Over!"
-gameOverLabel.Parent = gameOverFrame
-
-local finalScoreLabel = Instance.new("TextLabel")
-finalScoreLabel.Size = UDim2.new(1, 0, 0, 30)
-finalScoreLabel.Position = UDim2.new(0, 0, 0, 70)
-finalScoreLabel.BackgroundTransparency = 1
-finalScoreLabel.TextColor3 = Color3.new(1, 1, 1)
-finalScoreLabel.TextStrokeTransparency = 0.5
-finalScoreLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-finalScoreLabel.Font = Enum.Font.SourceSansBold
-finalScoreLabel.TextSize = 24
-finalScoreLabel.Text = "Final Score: 0"
-finalScoreLabel.Parent = gameOverFrame
-
-local finalHighScoreLabel = Instance.new("TextLabel")
-finalHighScoreLabel.Size = UDim2.new(1, 0, 0, 30)
-finalHighScoreLabel.Position = UDim2.new(0, 0, 0, 100)
-finalHighScoreLabel.BackgroundTransparency = 1
-finalHighScoreLabel.TextColor3 = Color3.new(1, 1, 0)
-finalHighScoreLabel.TextStrokeTransparency = 0.5
-finalHighScoreLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-finalHighScoreLabel.Font = Enum.Font.SourceSansBold
-finalHighScoreLabel.TextSize = 24
-finalHighScoreLabel.Text = "High Score: 0"
-finalHighScoreLabel.Parent = gameOverFrame
-
-local newHighScoreLabel = Instance.new("TextLabel")
-newHighScoreLabel.Size = UDim2.new(1, 0, 0, 30)
-newHighScoreLabel.Position = UDim2.new(0, 0, 0, 130)
-newHighScoreLabel.BackgroundTransparency = 1
-newHighScoreLabel.TextColor3 = Color3.new(1, 1, 0)
-newHighScoreLabel.TextStrokeTransparency = 0.5
-newHighScoreLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-newHighScoreLabel.Font = Enum.Font.Cartoon
-newHighScoreLabel.TextSize = 24
-newHighScoreLabel.Text = "New All-Time Best!"
-newHighScoreLabel.Visible = false
-newHighScoreLabel.Parent = gameOverFrame
-
-local restartButton = Instance.new("TextButton")
-restartButton.Size = UDim2.new(0, 100, 0, 40)
-restartButton.Position = UDim2.new(0.5, -50, 0, 180)
-restartButton.BackgroundColor3 = Color3.new(0, 0.5, 0)
-restartButton.TextColor3 = Color3.new(1, 1, 1)
-restartButton.Font = Enum.Font.SourceSansBold
-restartButton.TextSize = 20
-restartButton.Text = "Restart"
-restartButton.Parent = gameOverFrame
 
 -- Game state
 local score = 0
@@ -858,12 +760,12 @@ local function checkSlices()
 
 				-- Check if object2D is within viewport bounds
 				if object2D.X >= viewportPos.X and object2D.X <= viewportPos.X + viewportSize.X and
-					object2D.Y >= viewportPos.Y and object2D.Y <= viewportPos.Y + viewportSize.Y then
+					object2D.Y >= viewportPos.Y and object2D.Y <= viewportSize.Y + viewportSize.Y then
 					for i = 2, #slicePoints do
 						local p1 = slicePoints[i - 1]
 						local p2 = slicePoints[i]
 						local dist = pointToSegmentDistance(object2D, p1, p2)
-						local hitThreshold = CollectionService:HasTag(object, "Bomb") and 100 or 80  -- Increased from 80 to 100 for bombs only
+						local hitThreshold = CollectionService:HasTag(object, "Bomb") and 50 or 80  -- Reduced bomb detection from 100 to 50
 						print("Object2D:", object2D, "Slice P1:", p1, "P2:", p2, "Distance:", dist)
 
 						if dist <= hitThreshold then
