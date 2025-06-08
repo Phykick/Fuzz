@@ -62,7 +62,7 @@ if not gameOverGui then
 	return
 end
 local gameOverFrame = gameOverGui:WaitForChild("GameOverFrame")
-local gameOverLabel = gameOverFrame:WaitForChild("GameOverLabel") -- Assuming it exists
+local gameOverLabel = gameOverFrame:WaitForChild("GameOverLabel")
 local finalScoreLabel = gameOverFrame:WaitForChild("FinalScoreLabel")
 local finalHighScoreLabel = gameOverFrame:WaitForChild("HighScoreLabel")
 local newHighScoreLabel = gameOverFrame:WaitForChild("NewAllTimeLabel")
@@ -85,12 +85,12 @@ local highScore = 0
 local isGameOver = false
 local gameTime = 0
 local difficultyMultiplier = 1
-local SPAWN_INTERVAL_MAX = 1.0  -- Decreased from 1.2 to spawn faster
-local SPAWN_INTERVAL_MIN = 0.4  -- Decreased from 0.5 to spawn faster
+local SPAWN_INTERVAL_MAX = 1.0
+local SPAWN_INTERVAL_MIN = 0.4
 local VELOCITY_MULTIPLIER_MAX = 1.5
 local DIFFICULTY_RAMP_TIME = 30
-local BOMB_SPAWN_CHANCE_MIN = 0.08  -- Decreased from 0.10
-local BOMB_SPAWN_CHANCE_MAX = 0.12  -- Decreased from 0.15
+local BOMB_SPAWN_CHANCE_MIN = 0.08
+local BOMB_SPAWN_CHANCE_MAX = 0.12
 
 -- Cache models
 local fruitModelCache = {}
@@ -109,7 +109,6 @@ local function loadHighScore()
 end
 
 -- Save high score
-local personally
 local function saveHighScore()
 	highScoreEvent:FireServer("Save", score)
 	print("Client: Requested high score save with score:", score)
@@ -436,7 +435,7 @@ local GRAVITY = 20
 local function showPowerupMessage()
 	local message = Instance.new("TextLabel")
 	message.Size = UDim2.new(0, 300, 0, 50)
-	message.Position = UDim2.new(0.5, -150, 0, 50)  -- Top center
+	message.Position = UDim2.new(0.5, -150, 0, 50)
 	message.BackgroundTransparency = 1
 	message.Text = "Extra Life Gained!"
 	message.TextColor3 = Color3.new(0, 1, 0)
@@ -461,7 +460,7 @@ local function spawnObject()
 
 	local t = math.clamp(gameTime / DIFFICULTY_RAMP_TIME, 0, 1)
 	local bombChance = BOMB_SPAWN_CHANCE_MIN + (BOMB_SPAWN_CHANCE_MAX - BOMB_SPAWN_CHANCE_MIN) * t
-	local healingPearChance = (lives < 3) and 0.05 or 0  -- Changed back to 5%
+	local healingPearChance = (lives < 3) and 0.05 or 0
 
 	local r = math.random()
 	local template, tag
@@ -631,10 +630,8 @@ local function createLineSegment()
 	return line
 end
 
-local slicePoints = {}
-local lineSegments = {}
+local activeSlices = {}
 local maxPoints = 20
-local mouseDown = false
 
 -- Disable camera rotation on right-click using ContextActionService
 local function handleRightClick(actionName, inputState, inputObject)
@@ -648,69 +645,73 @@ end
 
 ContextActionService:BindAction("BlockCameraRotation", handleRightClick, false, Enum.UserInputType.MouseButton2)
 
--- Handle left-click for slicing
+-- Handle input for slicing
 UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
 	if isGameOver or gameProcessedEvent then return end
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		mouseDown = true
-		for _, seg in pairs(lineSegments) do
-			seg:Destroy()
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			activeSlices["mouse"] = {slicePoints = {}, lineSegments = {}}
+		else
+			activeSlices[input] = {slicePoints = {}, lineSegments = {}}
 		end
-		lineSegments = {}
-		slicePoints = {}
-		print("Slice started")
+		print("Slice started for:", input.UserInputType)
 	end
 end)
 
 UserInputService.InputEnded:Connect(function(input, gameProcessedEvent)
 	if isGameOver or gameProcessedEvent then return end
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		mouseDown = false
-		for _, seg in pairs(lineSegments) do
-			seg:Destroy()
+		if activeSlices["mouse"] then
+			for _, seg in pairs(activeSlices["mouse"].lineSegments) do
+				seg:Destroy()
+			end
+			activeSlices["mouse"] = nil
+			print("Slice ended for mouse")
 		end
-		lineSegments = {}
-		slicePoints = {}
-		print("Slice ended")
+	elseif input.UserInputType == Enum.UserInputType.Touch then
+		if activeSlices[input] then
+			for _, seg in pairs(activeSlices[input].lineSegments) do
+				seg:Destroy()
+			end
+			activeSlices[input] = nil
+			print("Slice ended for touch:", input)
+		end
 	end
 end)
 
 UserInputService.InputChanged:Connect(function(input, gameProcessedEvent)
 	if isGameOver or gameProcessedEvent then return end
-	if mouseDown and input.UserInputType == Enum.UserInputType.MouseMovement then
-		local mousePos = UserInputService:GetMouseLocation()
+	if (input.UserInputType == Enum.UserInputType.MouseMovement and activeSlices["mouse"]) or 
+		(input.UserInputType == Enum.UserInputType.Touch and activeSlices[input]) then
+		local pos = Vector2.new(input.Position.X, input.Position.Y)
+		local sliceData = input.UserInputType == Enum.UserInputType.MouseMovement and activeSlices["mouse"] or activeSlices[input]
 		local viewportPos = viewport.AbsolutePosition
 		local viewportSize = viewport.AbsoluteSize
+		local relativePos = pos - viewportPos
 
-		local relativePos = Vector2.new(mousePos.X - viewportPos.X, mousePos.Y - viewportPos.Y)
-
-		-- Only add points if inside viewport bounds
-		if relativePos.X >= 0 and relativePos.X <= viewportSize.X and
-			relativePos.Y >= 0 and relativePos.Y <= viewportSize.Y then
-			table.insert(slicePoints, relativePos)
-			if #slicePoints > maxPoints then
-				table.remove(slicePoints, 1)
+		if relativePos.X >= 0 and relativePos.X <= viewportSize.X and relativePos.Y >= 0 and relativePos.Y <= viewportSize.Y then
+			table.insert(sliceData.slicePoints, relativePos)
+			if #sliceData.slicePoints > maxPoints then
+				table.remove(sliceData.slicePoints, 1)
 			end
-			print("Slice point added:", relativePos)
-		end
 
-		for _, seg in pairs(lineSegments) do
-			seg:Destroy()
-		end
-		lineSegments = {}
+			for _, seg in pairs(sliceData.lineSegments) do
+				seg:Destroy()
+			end
+			sliceData.lineSegments = {}
 
-		for i = 2, #slicePoints do
-			local p1 = slicePoints[i - 1]
-			local p2 = slicePoints[i]
-			local delta = p2 - p1
-			local length = delta.Magnitude
-
-			local line = createLineSegment()
-			line.Position = UDim2.new(0, p1.X, 0, p1.Y)
-			line.Size = UDim2.new(0, length, 0, 3)
-			line.Rotation = math.deg(math.atan2(delta.Y, delta.X))
-
-			table.insert(lineSegments, line)
+			for i = 2, #sliceData.slicePoints do
+				local p1 = sliceData.slicePoints[i - 1]
+				local p2 = sliceData.slicePoints[i]
+				local delta = p2 - p1
+				local length = delta.Magnitude
+				local line = createLineSegment()
+				line.Position = UDim2.new(0, p1.X, 0, p1.Y)
+				line.Size = UDim2.new(0, length, 0, 3)
+				line.Rotation = math.deg(math.atan2(delta.Y, delta.X))
+				table.insert(sliceData.lineSegments, line)
+			end
+			print("Slice point added for:", input.UserInputType, "at", relativePos)
 		end
 	end
 end)
@@ -727,7 +728,7 @@ end
 -- Use viewportCamera for projection
 local projectionCamera = viewportCamera
 
-local function checkSlices()
+local function checkSlices(slicePoints)
 	if isGameOver then return end
 	if #slicePoints < 2 then
 		print("Not enough slice points:", #slicePoints)
@@ -753,24 +754,18 @@ local function checkSlices()
 			print("Object:", object.Name, "WorldPos:", worldPos, "ScreenPos:", screenPos, "OnScreen:", onScreen)
 
 			if onScreen and screenPos.Z > 0 then
-				-- Scale normalized coordinates to pixel coordinates
-				local object2D = Vector2.new(screenPos.X * viewportSize.X, screenPos.Y * viewportSize.Y)
-				-- Adjust by viewport position to match slicePoints
-				object2D = object2D + viewportPos
-
-				-- Check if object2D is within viewport bounds
+				local object2D = Vector2.new(screenPos.X * viewportSize.X, screenPos.Y * viewportSize.Y) + viewportPos
 				if object2D.X >= viewportPos.X and object2D.X <= viewportPos.X + viewportSize.X and
-					object2D.Y >= viewportPos.Y and object2D.Y <= viewportSize.Y + viewportSize.Y then
+					object2D.Y >= viewportPos.Y and object2D.Y <= viewportPos.Y + viewportSize.Y then
 					for i = 2, #slicePoints do
 						local p1 = slicePoints[i - 1]
 						local p2 = slicePoints[i]
 						local dist = pointToSegmentDistance(object2D, p1, p2)
-						local hitThreshold = CollectionService:HasTag(object, "Bomb") and 50 or 80  -- Reduced bomb detection from 100 to 50
+						local hitThreshold = CollectionService:HasTag(object, "Bomb") and 50 or 80
 						print("Object2D:", object2D, "Slice P1:", p1, "P2:", p2, "Distance:", dist)
 
 						if dist <= hitThreshold then
 							if CollectionService:HasTag(object, "Bomb") then
-								-- Bomb sliced: instant game over
 								animateBombExplosion(object)
 								fruitVelocities[object] = nil
 								isGameOver = true
@@ -781,7 +776,6 @@ local function checkSlices()
 								print("Sliced bomb:", object.Name, "Game Over! Final Score:", score, "High Score:", highScore)
 								return
 							elseif CollectionService:HasTag(object, "Fruit") then
-								-- Fruit sliced
 								local oldMultiplier = comboMultiplier
 								comboCount = comboCount + 1
 								if comboCount == 2 then
@@ -795,7 +789,6 @@ local function checkSlices()
 								if comboMultiplier ~= oldMultiplier then
 									comboLabel.Text = "Combo: x" .. comboMultiplier
 									animateCombo()
-									-- Combo popup
 									local popup = Instance.new("TextLabel")
 									popup.Size = UDim2.new(0, 200, 0, 50)
 									popup.Position = UDim2.new(0, object2D.X - 100, 0, object2D.Y - 25)
@@ -817,7 +810,6 @@ local function checkSlices()
 										popup:Destroy()
 									end)
 									print("Showing combo popup: x" .. comboMultiplier .. " COMBO!")
-									-- Play combo sound
 									local sound = Instance.new("Sound")
 									sound.SoundId = "rbxassetid://4612377122"
 									sound.Volume = 0.5
@@ -830,7 +822,6 @@ local function checkSlices()
 									print("Playing sound: Combo")
 								end
 
-								-- Update score
 								local points = 100 * comboMultiplier
 								score = score + points
 								scoreLabel.Text = "Score: " .. score
@@ -839,7 +830,6 @@ local function checkSlices()
 								end
 								print("Sliced fruit:", object.Name, "at", object2D, "with distance:", dist, "Points:", points, "Combo:", comboMultiplier)
 
-								-- Add score popup
 								local popup = Instance.new("TextLabel")
 								popup.Size = UDim2.new(0, 100, 0, 50)
 								popup.Position = UDim2.new(0, object2D.X - 50, 0, object2D.Y - 25)
@@ -861,20 +851,16 @@ local function checkSlices()
 									popup:Destroy()
 								end)
 
-								-- Animate slice
 								local sliceDir = (p2 - p1).Unit * 10
 								animateFruitSlice(object, Vector3.new(sliceDir.X, sliceDir.Y, 0))
 								fruitVelocities[object] = nil
 							elseif CollectionService:HasTag(object, "HealingPear") then
-								-- Healing pear sliced: gain extra life
 								if lives < 3 then
 									lives = lives + 1
 									livesLabel.Text = "Lives: " .. lives
 									print("Gained extra life, lives:", lives)
-									-- Show powerup message
 									showPowerupMessage()
 								end
-								-- Animate slice
 								local sliceDir = (p2 - p1).Unit * 10
 								animateFruitSlice(object, Vector3.new(sliceDir.X, sliceDir.Y, 0))
 								fruitVelocities[object] = nil
@@ -898,8 +884,10 @@ end
 
 RunService.Heartbeat:Connect(function()
 	if isGameOver then return end
-	if mouseDown then
-		checkSlices()
+	for _, sliceData in pairs(activeSlices) do
+		if #sliceData.slicePoints >= 2 then
+			checkSlices(sliceData.slicePoints)
+		end
 	end
 end)
 
@@ -917,16 +905,16 @@ restartButton.MouseButton1Click:Connect(function()
 	scoreLabel.Text = "Score: 0"
 	livesLabel.Text = "Lives: 3"
 	comboLabel.Text = "Combo: x1"
-	-- Clear existing objects
 	for _, object in pairs(fruitsFolder:GetChildren()) do
 		object:Destroy()
 		fruitVelocities[object] = nil
 	end
-	for _, seg in pairs(lineSegments) do
-		seg:Destroy()
+	for _, sliceData in pairs(activeSlices) do
+		for _, seg in pairs(sliceData.lineSegments) do
+			seg:Destroy()
+		end
 	end
-	lineSegments = {}
-	slicePoints = {}
+	activeSlices = {}
 	print("Game restarted")
 end)
 
