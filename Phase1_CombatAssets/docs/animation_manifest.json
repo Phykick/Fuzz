@@ -1,0 +1,648 @@
+{
+  "fps": 30,
+  "rig": "R15 (Root > HumanoidRootNode > LowerTorso ...)",
+  "weapon_joints": {
+    "SwordHandle": "Motor6D RightHand -> SwordHandle",
+    "BowHandle": "Motor6D LeftHand -> BowHandle"
+  },
+  "clips": [
+    {
+      "name": "Sword_Idle",
+      "category": "SWORD",
+      "file": "export/fbx/ANIM_Sword_Idle.fbx",
+      "frames": 90,
+      "seconds": 3.0,
+      "loop": true,
+      "markers": [],
+      "notes": "Combat stance loop. Breathing (chest pitch), weight settling and a small point sway."
+    },
+    {
+      "name": "Sword_Block",
+      "category": "SWORD",
+      "file": "export/fbx/ANIM_Sword_Block.fbx",
+      "frames": 30,
+      "seconds": 1.0,
+      "loop": false,
+      "markers": [
+        {
+          "name": "BlockStart",
+          "frame": 0,
+          "time": 0.0
+        },
+        {
+          "name": "BlockActive",
+          "frame": 6,
+          "time": 0.2
+        },
+        {
+          "name": "BlockHold",
+          "frame": 8,
+          "time": 0.267
+        },
+        {
+          "name": "BlockEnd",
+          "frame": 30,
+          "time": 1.0
+        }
+      ],
+      "notes": "Raise into a high cover (hilt beside the head, blade slanted across the face). Parry window opens at BlockActive; hold the last frame or chain Sword_Block_Hold."
+    },
+    {
+      "name": "Sword_Block_Hold",
+      "category": "SWORD",
+      "file": "export/fbx/ANIM_Sword_Block_Hold.fbx",
+      "frames": 60,
+      "seconds": 2.0,
+      "loop": true,
+      "markers": [
+        {
+          "name": "BlockActive",
+          "frame": 0,
+          "time": 0.0
+        }
+      ],
+      "notes": "Looping tension while holding the block."
+    },
+    {
+      "name": "Sword_Block_Recover",
+      "category": "SWORD",
+      "file": "export/fbx/ANIM_Sword_Block_Recover.fbx",
+      "frames": 16,
+      "seconds": 0.533,
+      "loop": false,
+      "markers": [
+        {
+          "name": "BlockEnd",
+          "frame": 0,
+          "time": 0.0
+        },
+        {
+          "name": "RecoveryEnd",
+          "frame": 16,
+          "time": 0.533
+        }
+      ],
+      "notes": "Lower the block back into the middle guard."
+    },
+    {
+      "name": "Sword_Attack_HighRight",
+      "category": "SWORD",
+      "file": "export/fbx/ANIM_Sword_Attack_HighRight.fbx",
+      "frames": 48,
+      "seconds": 1.6,
+      "loop": false,
+      "markers": [
+        {
+          "name": "AttackStart",
+          "frame": 0,
+          "time": 0.0
+        },
+        {
+          "name": "AttackActive",
+          "frame": 15,
+          "time": 0.5
+        },
+        {
+          "name": "Impact",
+          "frame": 18,
+          "time": 0.6
+        },
+        {
+          "name": "RecoveryStart",
+          "frame": 23,
+          "time": 0.767
+        },
+        {
+          "name": "AttackEnd",
+          "frame": 48,
+          "time": 1.6
+        }
+      ],
+      "notes": "Oberhau from the right shoulder, diagonal down to the low left. Short advancing step with the lead foot; hips lead the shoulders into the cut."
+    },
+    {
+      "name": "Sword_Attack_HighLeft",
+      "category": "SWORD",
+      "file": "export/fbx/ANIM_Sword_Attack_HighLeft.fbx",
+      "frames": 48,
+      "seconds": 1.6,
+      "loop": false,
+      "markers": [
+        {
+          "name": "AttackStart",
+          "frame": 0,
+          "time": 0.0
+        },
+        {
+          "name": "AttackActive",
+          "frame": 15,
+          "time": 0.5
+        },
+        {
+          "name": "Impact",
+          "frame": 18,
+          "time": 0.6
+        },
+        {
+          "name": "RecoveryStart",
+          "frame": 23,
+          "time": 0.767
+        },
+        {
+          "name": "AttackEnd",
+          "frame": 48,
+          "time": 1.6
+        }
+      ],
+      "notes": "Oberhau from the left shoulder, diagonal down to the low right. Hands cross to the left during the wind-up; the lead foot advances."
+    },
+    {
+      "name": "Sword_Attack_HorizontalRL",
+      "category": "SWORD",
+      "file": "export/fbx/ANIM_Sword_Attack_HorizontalRL.fbx",
+      "frames": 48,
+      "seconds": 1.6,
+      "loop": false,
+      "markers": [
+        {
+          "name": "AttackStart",
+          "frame": 0,
+          "time": 0.0
+        },
+        {
+          "name": "AttackActive",
+          "frame": 15,
+          "time": 0.5
+        },
+        {
+          "name": "Impact",
+          "frame": 18,
+          "time": 0.6
+        },
+        {
+          "name": "RecoveryStart",
+          "frame": 23,
+          "time": 0.767
+        },
+        {
+          "name": "AttackEnd",
+          "frame": 48,
+          "time": 1.6
+        }
+      ],
+      "notes": "Mittelhau right-to-left. Full-body rotation: rear foot pivots on the ball, hips then shoulders unwind; the lead foot stays planted."
+    },
+    {
+      "name": "Sword_Attack_HorizontalLR",
+      "category": "SWORD",
+      "file": "export/fbx/ANIM_Sword_Attack_HorizontalLR.fbx",
+      "frames": 48,
+      "seconds": 1.6,
+      "loop": false,
+      "markers": [
+        {
+          "name": "AttackStart",
+          "frame": 0,
+          "time": 0.0
+        },
+        {
+          "name": "AttackActive",
+          "frame": 15,
+          "time": 0.5
+        },
+        {
+          "name": "Impact",
+          "frame": 18,
+          "time": 0.6
+        },
+        {
+          "name": "RecoveryStart",
+          "frame": 23,
+          "time": 0.767
+        },
+        {
+          "name": "AttackEnd",
+          "frame": 48,
+          "time": 1.6
+        }
+      ],
+      "notes": "Mittelhau left-to-right. Coil to the left, lead foot pivots on the ball as the hips turn back to the right; the rear foot anchors."
+    },
+    {
+      "name": "Sword_Attack_Thrust",
+      "category": "SWORD",
+      "file": "export/fbx/ANIM_Sword_Attack_Thrust.fbx",
+      "frames": 46,
+      "seconds": 1.533,
+      "loop": false,
+      "markers": [
+        {
+          "name": "AttackStart",
+          "frame": 0,
+          "time": 0.0
+        },
+        {
+          "name": "AttackActive",
+          "frame": 14,
+          "time": 0.467
+        },
+        {
+          "name": "Impact",
+          "frame": 17,
+          "time": 0.567
+        },
+        {
+          "name": "RecoveryStart",
+          "frame": 22,
+          "time": 0.733
+        },
+        {
+          "name": "AttackEnd",
+          "frame": 46,
+          "time": 1.533
+        }
+      ],
+      "notes": "Short chamber, lunging step with the lead foot, hips drive then arms extend. Longest reach of the set (~6 studs to the point)."
+    },
+    {
+      "name": "Sword_Recovery_HighRight",
+      "category": "SWORD",
+      "file": "export/fbx/ANIM_Sword_Recovery_HighRight.fbx",
+      "frames": 25,
+      "seconds": 0.833,
+      "loop": false,
+      "markers": [
+        {
+          "name": "RecoveryStart",
+          "frame": 0,
+          "time": 0.0
+        },
+        {
+          "name": "RecoveryEnd",
+          "frame": 25,
+          "time": 0.833
+        }
+      ],
+      "notes": "Recovery segment of Sword_Attack_HighRight as its own clip (use after a hit/miss/parry to control the opening window independently)."
+    },
+    {
+      "name": "Sword_Recovery_HighLeft",
+      "category": "SWORD",
+      "file": "export/fbx/ANIM_Sword_Recovery_HighLeft.fbx",
+      "frames": 25,
+      "seconds": 0.833,
+      "loop": false,
+      "markers": [
+        {
+          "name": "RecoveryStart",
+          "frame": 0,
+          "time": 0.0
+        },
+        {
+          "name": "RecoveryEnd",
+          "frame": 25,
+          "time": 0.833
+        }
+      ],
+      "notes": "Recovery segment of Sword_Attack_HighLeft as its own clip (use after a hit/miss/parry to control the opening window independently)."
+    },
+    {
+      "name": "Sword_Recovery_HorizontalRL",
+      "category": "SWORD",
+      "file": "export/fbx/ANIM_Sword_Recovery_HorizontalRL.fbx",
+      "frames": 25,
+      "seconds": 0.833,
+      "loop": false,
+      "markers": [
+        {
+          "name": "RecoveryStart",
+          "frame": 0,
+          "time": 0.0
+        },
+        {
+          "name": "RecoveryEnd",
+          "frame": 25,
+          "time": 0.833
+        }
+      ],
+      "notes": "Recovery segment of Sword_Attack_HorizontalRL as its own clip (use after a hit/miss/parry to control the opening window independently)."
+    },
+    {
+      "name": "Sword_Recovery_HorizontalLR",
+      "category": "SWORD",
+      "file": "export/fbx/ANIM_Sword_Recovery_HorizontalLR.fbx",
+      "frames": 25,
+      "seconds": 0.833,
+      "loop": false,
+      "markers": [
+        {
+          "name": "RecoveryStart",
+          "frame": 0,
+          "time": 0.0
+        },
+        {
+          "name": "RecoveryEnd",
+          "frame": 25,
+          "time": 0.833
+        }
+      ],
+      "notes": "Recovery segment of Sword_Attack_HorizontalLR as its own clip (use after a hit/miss/parry to control the opening window independently)."
+    },
+    {
+      "name": "Sword_Recovery_Thrust",
+      "category": "SWORD",
+      "file": "export/fbx/ANIM_Sword_Recovery_Thrust.fbx",
+      "frames": 24,
+      "seconds": 0.8,
+      "loop": false,
+      "markers": [
+        {
+          "name": "RecoveryStart",
+          "frame": 0,
+          "time": 0.0
+        },
+        {
+          "name": "RecoveryEnd",
+          "frame": 24,
+          "time": 0.8
+        }
+      ],
+      "notes": "Recovery segment of Sword_Attack_Thrust as its own clip (use after a hit/miss/parry to control the opening window independently)."
+    },
+    {
+      "name": "React_Hit_Torso",
+      "category": "REACTIONS",
+      "file": "export/fbx/ANIM_React_Hit_Torso.fbx",
+      "frames": 24,
+      "seconds": 0.8,
+      "loop": false,
+      "markers": [
+        {
+          "name": "HitStart",
+          "frame": 0,
+          "time": 0.0
+        },
+        {
+          "name": "HitPeak",
+          "frame": 6,
+          "time": 0.2
+        },
+        {
+          "name": "RecoveryStart",
+          "frame": 10,
+          "time": 0.333
+        },
+        {
+          "name": "HitEnd",
+          "frame": 24,
+          "time": 0.8
+        }
+      ],
+      "notes": "Blow to the chest: upper body driven back, head snaps, then braces forward and resets."
+    },
+    {
+      "name": "React_Hit_Arm",
+      "category": "REACTIONS",
+      "file": "export/fbx/ANIM_React_Hit_Arm.fbx",
+      "frames": 28,
+      "seconds": 0.933,
+      "loop": false,
+      "markers": [
+        {
+          "name": "HitStart",
+          "frame": 0,
+          "time": 0.0
+        },
+        {
+          "name": "HitPeak",
+          "frame": 7,
+          "time": 0.233
+        },
+        {
+          "name": "RecoveryStart",
+          "frame": 12,
+          "time": 0.4
+        },
+        {
+          "name": "HitEnd",
+          "frame": 28,
+          "time": 0.933
+        }
+      ],
+      "notes": "Blow to the right arm: the sword arm is knocked out and down, shoulder pulls back, the point drops off line before the guard is regained."
+    },
+    {
+      "name": "React_Hit_Heavy",
+      "category": "REACTIONS",
+      "file": "export/fbx/ANIM_React_Hit_Heavy.fbx",
+      "frames": 52,
+      "seconds": 1.733,
+      "loop": false,
+      "markers": [
+        {
+          "name": "HitStart",
+          "frame": 0,
+          "time": 0.0
+        },
+        {
+          "name": "HitPeak",
+          "frame": 5,
+          "time": 0.167
+        },
+        {
+          "name": "RecoveryStart",
+          "frame": 22,
+          "time": 0.733
+        },
+        {
+          "name": "HitEnd",
+          "frame": 52,
+          "time": 1.733
+        }
+      ],
+      "notes": "Heavy blow: torso driven back, rear foot steps back to catch balance, then the fighter steps back into the original stance (ends where it started - no root drift)."
+    },
+    {
+      "name": "React_Stagger",
+      "category": "REACTIONS",
+      "file": "export/fbx/ANIM_React_Stagger.fbx",
+      "frames": 70,
+      "seconds": 2.333,
+      "loop": false,
+      "markers": [
+        {
+          "name": "HitStart",
+          "frame": 0,
+          "time": 0.0
+        },
+        {
+          "name": "Vulnerable",
+          "frame": 4,
+          "time": 0.133
+        },
+        {
+          "name": "HitPeak",
+          "frame": 11,
+          "time": 0.367
+        },
+        {
+          "name": "RecoveryStart",
+          "frame": 36,
+          "time": 1.2
+        },
+        {
+          "name": "HitEnd",
+          "frame": 70,
+          "time": 2.333
+        }
+      ],
+      "notes": "Loss of balance: two stumbling steps back with lateral sway and the guard dropping, then the fighter regains the guard and walks back into the original stance."
+    },
+    {
+      "name": "Bow_Idle",
+      "category": "BOW",
+      "file": "export/fbx/ANIM_Bow_Idle.fbx",
+      "frames": 90,
+      "seconds": 3.0,
+      "loop": true,
+      "markers": [],
+      "notes": "Side-on archer's stance, bow held low in the left hand, lower limb forward, right hand relaxed. Breathing loop."
+    },
+    {
+      "name": "Bow_Nock",
+      "category": "BOW",
+      "file": "export/fbx/ANIM_Bow_Nock.fbx",
+      "frames": 46,
+      "seconds": 1.533,
+      "loop": false,
+      "markers": [
+        {
+          "name": "NockStart",
+          "frame": 0,
+          "time": 0.0
+        },
+        {
+          "name": "ArrowGrab",
+          "frame": 13,
+          "time": 0.433
+        },
+        {
+          "name": "ArrowOnBow",
+          "frame": 35,
+          "time": 1.167
+        },
+        {
+          "name": "Nocked",
+          "frame": 39,
+          "time": 1.3
+        },
+        {
+          "name": "NockEnd",
+          "frame": 46,
+          "time": 1.533
+        }
+      ],
+      "notes": "Reach back to the hip quiver, draw an arrow, swing it forward onto the bow hand and clip the nock onto the string. Ends in the set position (fingers on the string)."
+    },
+    {
+      "name": "Bow_Draw",
+      "category": "BOW",
+      "file": "export/fbx/ANIM_Bow_Draw.fbx",
+      "frames": 28,
+      "seconds": 0.933,
+      "loop": false,
+      "markers": [
+        {
+          "name": "DrawStart",
+          "frame": 0,
+          "time": 0.0
+        },
+        {
+          "name": "FullDraw",
+          "frame": 28,
+          "time": 0.933
+        }
+      ],
+      "notes": "Raise and draw in one motion: bow arm extends toward the target, shoulder blades close, draw hand arcs back to a jaw anchor. Torso stays upright and side-on."
+    },
+    {
+      "name": "Bow_FullDraw",
+      "category": "BOW",
+      "file": "export/fbx/ANIM_Bow_FullDraw.fbx",
+      "frames": 30,
+      "seconds": 1.0,
+      "loop": true,
+      "markers": [
+        {
+          "name": "FullDraw",
+          "frame": 0,
+          "time": 0.0
+        }
+      ],
+      "notes": "Hold at full draw (looping). Very small strain tremor; posture is bone-stacked so it reads as sustainable for a few seconds."
+    },
+    {
+      "name": "Bow_Aim",
+      "category": "BOW",
+      "file": "export/fbx/ANIM_Bow_Aim.fbx",
+      "frames": 60,
+      "seconds": 2.0,
+      "loop": true,
+      "markers": [
+        {
+          "name": "FullDraw",
+          "frame": 0,
+          "time": 0.0
+        }
+      ],
+      "notes": "Aiming sway at full draw: the whole upper body (not just the arms) tracks a small ellipse, anchor stays locked to the jaw."
+    },
+    {
+      "name": "Bow_Release",
+      "category": "BOW",
+      "file": "export/fbx/ANIM_Bow_Release.fbx",
+      "frames": 20,
+      "seconds": 0.667,
+      "loop": false,
+      "markers": [
+        {
+          "name": "Release",
+          "frame": 1,
+          "time": 0.033
+        },
+        {
+          "name": "Recovery",
+          "frame": 6,
+          "time": 0.2
+        },
+        {
+          "name": "ReleaseEnd",
+          "frame": 20,
+          "time": 0.667
+        }
+      ],
+      "notes": "Fingers relax off the string; the draw hand slides back along the jaw/neck line as back tension releases. Bow arm stays on target with only a small forward drop."
+    },
+    {
+      "name": "Bow_Lower",
+      "category": "BOW",
+      "file": "export/fbx/ANIM_Bow_Lower.fbx",
+      "frames": 30,
+      "seconds": 1.0,
+      "loop": false,
+      "markers": [
+        {
+          "name": "LowerStart",
+          "frame": 0,
+          "time": 0.0
+        },
+        {
+          "name": "LowerEnd",
+          "frame": 30,
+          "time": 1.0
+        }
+      ],
+      "notes": "Relax out of the shot: bow lowers to the ready position, draw hand drops to the side."
+    }
+  ]
+}

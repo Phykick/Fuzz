@@ -183,8 +183,8 @@ SWORD = dict(
     blade_len=0.97 * M,          # 97 cm blade
     blade_w0=0.052 * M,          # width at the shoulders
     blade_w1=0.030 * M,          # width before the point section
-    blade_t0=0.0078 * M,         # thickness at base (distal taper)
-    blade_t1=0.0030 * M,         # thickness near the point
+    blade_t0=0.0068 * M,         # thickness at base (distal taper)
+    blade_t1=0.0022 * M,         # thickness near the point
     fuller_len=0.42,             # fraction of the blade
     fuller_w=0.020 * M,
     fuller_d=0.0014 * M,
@@ -192,7 +192,7 @@ SWORD = dict(
     grip_rx=0.030 * M / 2,
     grip_ry=0.025 * M / 2,
     guard_span=0.27 * M,
-    pommel_r=0.058 * M / 2,
+    pommel_r=0.066 * M / 2,
     left_hand_offset=-0.30,      # left-hand grip centre on the grip (studs, Z)
 )
 
@@ -296,8 +296,8 @@ def build_sword(mat):
     # ---- Wheel pommel: revolved around Y (faces aligned with the flats)
     mb = MeshBuilder()
     R = s["pommel_r"]
-    prof = [(0.012, 0.052), (0.030, 0.052), (0.040, 0.040), (R * 0.88, 0.035), (R, 0.020),
-            (R, -0.020), (R * 0.88, -0.035), (0.040, -0.040), (0.030, -0.052), (0.012, -0.052)]
+    prof = [(0.012, 0.060), (0.034, 0.060), (0.046, 0.048), (R * 0.88, 0.042), (R, 0.026),
+            (R, -0.026), (R * 0.88, -0.042), (0.046, -0.048), (0.034, -0.060), (0.012, -0.060)]
     pc = Vector((0, 0, zb - R + 0.02))
     seg = 20
     rings = []
@@ -308,8 +308,8 @@ def build_sword(mat):
             ring.append(pc + Vector((r * math.cos(a), y, r * math.sin(a))))
         rings.append(ring)
     # caps close the boss centres
-    loft(mb, rings, SWORD_ATLAS["pommel"], cap_start=pc + Vector((0, 0.056, 0)),
-         cap_end=pc + Vector((0, -0.056, 0)), smooth=True)
+    loft(mb, rings, SWORD_ATLAS["pommel"], cap_start=pc + Vector((0, 0.064, 0)),
+         cap_end=pc + Vector((0, -0.064, 0)), smooth=True)
     # peen block on the bottom where the tang is riveted over
     peen = [ellipse_ring(pc + Vector((0, 0, -R + 0.004 - d)), Vector((1, 0, 0)), Vector((0, 1, 0)),
                          0.018 - d * 0.3, 0.014 - d * 0.3, 8) for d in (0.0, 0.018)]
@@ -334,6 +334,10 @@ BOW = dict(
     string_r=0.0028 * M,
     serving_r=0.0042 * M,
 )
+
+
+BOW_NOCK_Z = 0.15                         # nocking point, just above the bow hand
+ARROW_REST = (0.055, 0.0, 0.15)           # arrow passes on the left of the bow, over the fist
 
 
 def bow_centerline(z):
@@ -457,12 +461,13 @@ def build_bow(mat):
     top, bot = bow_string_points()
     ys = top.y
     serv = 0.12
+    nz = BOW_NOCK_Z
     spec = [(top.z, b["string_r"], "Limb_Upper"),
-            (serv + 0.02, b["string_r"], "String_Nock"),
-            (serv, b["serving_r"], "String_Nock"),
-            (0.0, b["serving_r"], "String_Nock"),
-            (-serv, b["serving_r"], "String_Nock"),
-            (-serv - 0.02, b["string_r"], "String_Nock"),
+            (nz + serv + 0.02, b["string_r"], "String_Nock"),
+            (nz + serv, b["serving_r"], "String_Nock"),
+            (nz, b["serving_r"], "String_Nock"),
+            (nz - serv, b["serving_r"], "String_Nock"),
+            (nz - serv - 0.02, b["string_r"], "String_Nock"),
             (bot.z, b["string_r"], "Limb_Lower")]
     rings = [ellipse_ring(Vector((0, ys, z)), Vector((1, 0, 0)), Vector((0, 1, 0)), r, r, 6) for (z, r, _) in spec]
     idx = loft(ms, rings, BOW_ATLAS["string"], smooth=True)

@@ -1,0 +1,202 @@
+{
+  "units": "studs (1 Blender unit = 1 stud)",
+  "axis_conversion": "Roblox = (-X_blender, Z_blender, Y_blender); character faces -Y in Blender / -Z (LookVector) in Roblox",
+  "cframe_format": "[x, y, z, R00, R01, R02, R10, R11, R12, R20, R21, R22] (CFrame.new(...) component order)",
+  "sword": {
+    "origin": "centre of the right-hand grip, just under the guard",
+    "local_axes": "Blender: +Z blade/point, +X true edge, +/-Y flats. Roblox (after import): +Y point, -X true edge, +/-Z flats",
+    "points_blender_local": {
+      "RightHandGrip": [
+        0,
+        0,
+        0
+      ],
+      "LeftHandGrip": [
+        0,
+        0,
+        -0.3
+      ],
+      "BladeBase": [
+        0,
+        0,
+        0.225
+      ],
+      "BladeTip": [
+        0,
+        0,
+        3.135
+      ],
+      "Pommel_bottom": [
+        0,
+        0,
+        -0.748
+      ]
+    },
+    "motor6d": {
+      "Part0": "RightHand",
+      "Part1": "SwordHandle (sword root part, pivot at the grip origin)",
+      "C0_rest": [
+        0.0,
+        -0.01,
+        0.0,
+        0.0,
+        0.0,
+        -1.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "C1": "identity"
+    },
+    "physical_estimate": {
+      "mass_kg": 2.6,
+      "point_of_balance_above_guard_cm": 7.9,
+      "overall_length_cm": 130.1
+    }
+  },
+  "bow": {
+    "origin": "centre of the bow-hand grip",
+    "local_axes": "Blender: +Z upper limb, -Y back of the bow (faces target), +Y string side. Roblox: +Y upper limb, +Z back of the bow, -Z string side",
+    "points_blender_local": {
+      "Grip": [
+        0,
+        0,
+        0
+      ],
+      "ArrowRest": [
+        0.055,
+        0.0,
+        0.15
+      ],
+      "NockPoint_braced": [
+        0,
+        0.552,
+        0.15
+      ],
+      "UpperNock": [
+        0,
+        0.552,
+        2.6625
+      ],
+      "LowerNock": [
+        0,
+        0.552,
+        -2.6625
+      ]
+    },
+    "bones": {
+      "Bow_Root": "static handle",
+      "Limb_Upper/Limb_Lower": "rotate about local X at the fades",
+      "String_Nock": "translate to the draw-hand fingers while drawn"
+    },
+    "draw_table": [
+      {
+        "pull_studs": 0.0,
+        "limb_upper_deg": 0.0,
+        "limb_lower_deg": 0.0
+      },
+      {
+        "pull_studs": 0.2,
+        "limb_upper_deg": -0.62,
+        "limb_lower_deg": 0.56
+      },
+      {
+        "pull_studs": 0.4,
+        "limb_upper_deg": -1.97,
+        "limb_lower_deg": 1.83
+      },
+      {
+        "pull_studs": 0.6,
+        "limb_upper_deg": -3.69,
+        "limb_lower_deg": 3.46
+      },
+      {
+        "pull_studs": 0.8,
+        "limb_upper_deg": -5.64,
+        "limb_lower_deg": 5.31
+      },
+      {
+        "pull_studs": 1.0,
+        "limb_upper_deg": -7.73,
+        "limb_lower_deg": 7.31
+      },
+      {
+        "pull_studs": 1.2,
+        "limb_upper_deg": -9.95,
+        "limb_lower_deg": 9.43
+      },
+      {
+        "pull_studs": 1.4,
+        "limb_upper_deg": -12.26,
+        "limb_lower_deg": 11.64
+      },
+      {
+        "pull_studs": 1.6,
+        "limb_upper_deg": -14.65,
+        "limb_lower_deg": 13.93
+      },
+      {
+        "pull_studs": 1.8,
+        "limb_upper_deg": -17.14,
+        "limb_lower_deg": 16.3
+      },
+      {
+        "pull_studs": 2.0,
+        "limb_upper_deg": -19.71,
+        "limb_lower_deg": 18.75
+      },
+      {
+        "pull_studs": 2.2,
+        "limb_upper_deg": -22.39,
+        "limb_lower_deg": 21.29
+      },
+      {
+        "pull_studs": 2.4,
+        "limb_upper_deg": -25.17,
+        "limb_lower_deg": 23.92
+      }
+    ],
+    "brace_height_studs": 0.4894,
+    "motor6d": {
+      "Part0": "LeftHand",
+      "Part1": "BowHandle (bow root, pivot at the grip)",
+      "C0_rest": [
+        0.0,
+        -0.01,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        -1.0,
+        0.0
+      ],
+      "C1": "identity"
+    }
+  },
+  "arrow": {
+    "origin": "string groove of the nock",
+    "local_axes": "points along -Y in Blender = -Z (LookVector) in Roblox",
+    "length_studs": 2.73,
+    "held": "during Bow_Nock the nock sits at RightHand + (0, FIST+0.04) along the hand; when nocked the nock follows the string point and the shaft aims at the bow's ArrowRest"
+  },
+  "hands": {
+    "fist_centre_from_wrist": 0.22,
+    "RightHand_part_centre": [
+      -0.8500000238418579,
+      0.0,
+      2.0899999141693115
+    ],
+    "LeftHand_part_centre": [
+      0.8500000238418579,
+      0.0,
+      2.0899999141693115
+    ]
+  }
+}
