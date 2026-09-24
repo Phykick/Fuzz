@@ -691,6 +691,36 @@ def select_only(obs):
     bpy.context.view_layer.objects.active = obs[0]
 
 
+def bound_weapon(name, root, parts, frame3, pos, bone, rig_ob):
+    """Merge a weapon's meshes (rest geometry) into one mesh placed in the
+    hand at rest and weighted 100% to `bone`."""
+    import bmesh
+    rest_world = frame3.to_4x4()
+    rest_world.translation = pos
+    to_local = root.matrix_world.inverted()
+    bm = bmesh.new()
+    for ob in parts:
+        tmp = bmesh.new()
+        tmp.from_mesh(ob.data)
+        tmp.transform(rest_world @ to_local @ ob.matrix_world)
+        me = bpy.data.meshes.new("_tmp")
+        tmp.to_mesh(me)
+        tmp.free()
+        bm.from_mesh(me)
+        bpy.data.meshes.remove(me)
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    me.materials.append(parts[0].data.materials[0])
+    ob = bpy.data.objects.new(name, me)
+    rig_ob.users_collection[0].objects.link(ob)
+    ob.parent = rig_ob
+    vg = ob.vertex_groups.new(name=bone)
+    vg.add(list(range(len(me.vertices))), 1.0, "REPLACE")
+    ob.modifiers.new("Armature", "ARMATURE").object = rig_ob
+    return ob
+
+
 def export_all(sc, rig_ob, body, baked, assets, held):
     os.makedirs(FBX, exist_ok=True)
     # hide props so they are never picked up
@@ -706,6 +736,22 @@ def export_all(sc, rig_ob, body, baked, assets, held):
     select_only(rig_objs)
     bpy.ops.export_scene.fbx(filepath=os.path.join(FBX, "R15_CombatRig.fbx"), use_selection=True,
                              object_types={"ARMATURE", "MESH"}, bake_anim=False, path_mode="AUTO", **FBX_COMMON)
+
+    # armed rig: sword / bow merged and bound 100% to their handle bones, so
+    # Studio's rig importer creates SwordHandle / BowHandle parts + Motor6Ds
+    # at exactly the right grip offset (no manual C0 entry)
+    bound = [bound_weapon("SwordHandle_Geo", assets["sword"], list(assets["sword_parts"].values()),
+                          R.SWORD_REST_FRAME, R.SWORD_REST_POS, "SwordHandle", rig_ob),
+             bound_weapon("BowHandle_Geo", assets["bow_rig"], list(assets["bow_meshes"]),
+                          R.BOW_REST_FRAME, R.BOW_REST_POS, "BowHandle", rig_ob)]
+    select_only(rig_objs + bound)
+    bpy.ops.export_scene.fbx(filepath=os.path.join(FBX, "R15_CombatRig_Armed.fbx"), use_selection=True,
+                             object_types={"ARMATURE", "MESH"}, bake_anim=False, path_mode="COPY",
+                             embed_textures=True, **FBX_COMMON)
+    for ob in bound:
+        me = ob.data
+        bpy.data.objects.remove(ob)
+        bpy.data.meshes.remove(me)
 
     # animations: one FBX per clip (rig + body so it previews on import)
     for e in baked:

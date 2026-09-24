@@ -174,6 +174,7 @@ COMBAT_ASSETS
 
 Files in `export/fbx/`:
 - `R15_CombatRig.fbx`: rig and body in rest pose.
+- `R15_CombatRig_Armed.fbx`: the same rig with the sword and bow bound to `SwordHandle` / `BowHandle`, so Studio creates the weapon Motor6Ds itself. Use this one. The step-by-step import is in `docs/ROBLOX_STUDIO_IMPORT.md`.
 - `ANIM_<clip>.fbx` × 25: rig and body with one take, named after the clip.
 - `Sword_TwoHanded.fbx`, `Bow_Longbow.fbx`.
 - `Arrow*.fbx` and `Arrow*_Battlefield.fbx`.

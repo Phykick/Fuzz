@@ -9,6 +9,7 @@ arrows, an R15 test rig, and 25 R15 combat animations. There is no gameplay code
 | `export/fbx/` | Roblox-ready FBX: rig, sword, bow, arrows, `ANIM_<clip>.fbx` per animation |
 | `textures/` | SurfaceAppearance maps (Color / Normal / Roughness / Metalness) |
 | `docs/PHASE1_REPORT.md` | **The report**: assets, animations, markers, structure, export settings, TODO |
+| `docs/ROBLOX_STUDIO_IMPORT.md` | **Step-by-step Studio import guide** (rig, textures, animations + events, weapons) |
 | `docs/animation_manifest.json` | Clip lengths, loop flags, marker frames and seconds |
 | `docs/attachments.json` | Grip origins, Motor6D C0 values, bow draw table, key points |
 | `docs/qc_report.md` | Automated QC per clip (IK, foot slide, clipping, joint ranges) |
