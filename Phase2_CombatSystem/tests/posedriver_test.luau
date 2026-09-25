@@ -45,6 +45,18 @@ local function check(label, got, want, tol)
 end
 check("scale", Vector3.new(rig.scale, 0, 0), Vector3.new(S_TRUE, 0, 0), 1e-6)
 
+
+local function checkWeapon(label, rig, root, bones)
+	if not bones._BladeTip then return 0 end
+	local d = MODS.RigData.swordDims
+	local w = rig:weaponWorld("Sword", root)
+	local tip = w * Vector3.new(0, (d.gripTop + d.guardH + d.bladeLen) * rig.scale, 0)
+	local e1 = (w.Position - root * toRig(bones.SwordHandle)).Magnitude
+	local e2 = (tip - root * toRig(bones._BladeTip)).Magnitude
+	local e = math.max(e1, e2)
+	if e > 3e-3 then fails += 1; print(("FAIL weapon %s grip %.4f tip %.4f"):format(label, e1, e2)) end
+	return e
+end
 local pose = PoseDriver.newPose()
 local worst = 0
 for key, bones in REF do
@@ -69,6 +81,7 @@ for key, bones in REF do
 	worst = math.max(worst, check(key .. " BladeTip", tipServer, HRP_CF * toRig(bones._BladeTip), 2e-3))
 	local sh = world[parts.SwordHandle] * rig.points.BladeTip.offset -- engine: part frame * offset
 	check(key .. " BladeTip engine==server", sh, tipServer, 1e-4)
+	worst = math.max(worst, checkWeapon("motor " .. key, rig, HRP_CF, bones))
 end
 print(("posedriver[Motor6D]: worst joint error %.6f studs, %d failures"):format(worst, fails))
 
@@ -109,6 +122,7 @@ for key, bones in REF do
 	for _, name in RigData.bones do
 		bworst = math.max(bworst, check("bone " .. key .. " " .. name, W(bonesByName[name]).Position, HRP_CF * toRig(bones[name]), 1e-3))
 	end
+	bworst = math.max(bworst, checkWeapon("bone " .. key, brig, HRP_CF, bones))
 end
 print(("posedriver[Bone]: worst joint error %.6f studs, %d failures"):format(bworst, fails))
 -- loop sampling / blend sanity

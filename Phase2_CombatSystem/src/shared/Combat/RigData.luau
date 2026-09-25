@@ -51,6 +51,14 @@ return {
 		RightLowerLeg = { center = Vector3.new(0.35, 0.87, 0.02), size = Vector3.new(0.361, 1.1, 0.3902) },
 		RightFoot = { center = Vector3.new(0.35, 0.18, -0.2), size = Vector3.new(0.3133, 0.36, 0.8059) },
 	},
+	weapons = {
+		Sword = { bone = "SwordHandle", fallback = "RightHand", rest = CFrame.fromMatrix(Vector3.new(0.85, 2.08, 0), Vector3.new(0, 1, 0), Vector3.new(0, 0, -1), Vector3.new(-1, 0, 0)) },
+		Bow = { bone = "BowHandle", fallback = "LeftHand", rest = CFrame.fromMatrix(Vector3.new(-0.85, 2.08, 0), Vector3.new(1, 0, 0), Vector3.new(0, 0, -1), Vector3.new(0, 1, 0)) },
+	},
+	swordDims = { gripTop = 0.15, guardH = 0.075, bladeLen = 2.91, bladeW0 = 0.156, bladeW1 = 0.09, bladeT = 0.0204, gripLen = 0.72, gripR = 0.045, guardSpan = 0.81, pommelR = 0.099 },
+	-- bow centreline in weapon space: { along limb (+Y), toward string (+Z) }
+	bowCurve = { { -2.745, 0.57 }, { -2.5162, 0.473 }, { -2.2875, 0.3845 }, { -2.0588, 0.3048 }, { -1.83, 0.2339 }, { -1.6013, 0.172 }, { -1.3725, 0.1191 }, { -1.1438, 0.0755 }, { -0.915, 0.0414 }, { -0.6862, 0.0171 }, { -0.4575, 0.0031 }, { -0.2288, 0 }, { 0, 0 }, { 0.2288, 0 }, { 0.4575, 0.0031 }, { 0.6862, 0.0171 }, { 0.915, 0.0414 }, { 1.1438, 0.0755 }, { 1.3725, 0.1191 }, { 1.6013, 0.172 }, { 1.83, 0.2339 }, { 2.0588, 0.3048 }, { 2.2875, 0.3845 }, { 2.5162, 0.473 }, { 2.745, 0.57 } },
+	bowDims = { wGrip = 0.096, dGrip = 0.108, wTip = 0.039, dTip = 0.036, gripHalf = 0.3 },
 	studsPerMetre = 3,
 	arrowLength = 2.73,
 }

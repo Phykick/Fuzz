@@ -59,5 +59,12 @@ for key, bones in REF do
 		end
 	end
 end
+-- no SwordHandle part in this rig: the sword must ride on the right hand
+PoseDriver.sample(PoseDriver.getClip("Sword_Attack_HighRight"), 0, false, pose)
+rig:solve(pose)
+local ref = REF["Sword_Attack_HighRight@0"]
+local we = (rig:weaponWorld("Sword", HRP_CF).Position - HRP_CF * toRig(ref.SwordHandle)).Magnitude
+print(("rigrepair: sword-on-hand fallback grip error %.4f studs"):format(we))
+if we > 0.05 then fails += 1 end
 print(("rigrepair: worst joint error %.6f studs, %d failures"):format(worst, fails))
 print(fails == 0 and ok and "ALL PASS" or "FAIL")

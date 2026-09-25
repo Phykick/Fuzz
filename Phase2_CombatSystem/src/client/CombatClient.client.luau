@@ -20,6 +20,7 @@ local Debris = game:GetService("Debris")
 local Combat = ReplicatedStorage:WaitForChild("Combat")
 local CharacterAnimator = require(Combat.CharacterAnimator)
 local ArrowModel = require(Combat.ArrowModel)
+local WeaponModels = require(Combat.WeaponModels)
 local Config = require(Combat.Config)
 
 local remotes = ReplicatedStorage:WaitForChild("CombatRemotes")
@@ -76,7 +77,10 @@ local function track(model)
 	if not anim then
 		return -- not fully streamed yet; the scan retries
 	end
-	local entry = { anim = anim, dead = false }
+	local entry = { anim = anim, dead = false, weapons = {} }
+	for _, w in { "Sword", "Bow" } do
+		entry.weapons[w] = WeaponModels.new(w, anim.rig.scale)
+	end
 	tracked[model] = entry
 	setupBowString(entry)
 end
@@ -91,6 +95,9 @@ local function untrack(model)
 			for _, a in e.stringAtt do
 				a:Destroy()
 			end
+		end
+		for _, w in e.weapons do
+			w:Destroy()
 		end
 		tracked[model] = nil
 	end
@@ -111,6 +118,21 @@ task.spawn(function()
 		task.wait(0.5)
 	end
 end)
+
+local function updateWeapons(model, entry, visible)
+	local current = model:GetAttribute("Weapon") or "Sword"
+	for name, m in entry.weapons do
+		local cf = visible and name == current and entry.anim.rig:weaponWorld(name)
+		if cf then
+			m:PivotTo(cf)
+			if m.Parent ~= fxFolder then
+				m.Parent = fxFolder
+			end
+		elseif m.Parent then
+			m.Parent = nil
+		end
+	end
+end
 
 local function updateBowVisuals(model, entry)
 	local anim = entry.anim
@@ -165,6 +187,12 @@ RunService.PreSimulation:Connect(function(dt)
 			if not entry.dead then
 				entry.dead = true
 				entry.anim.rig:reset()
+				updateWeapons(model, entry, false)
+				if entry.beams then
+					for _, b in entry.beams do
+						b.Enabled = false
+					end
+				end
 				if entry.arrow then
 					entry.arrow:Destroy()
 					entry.arrow = nil
@@ -178,6 +206,7 @@ RunService.PreSimulation:Connect(function(dt)
 		end
 		local pose = entry.anim:update(dt, t)
 		entry.anim.rig:apply(pose)
+		updateWeapons(model, entry, true)
 		updateBowVisuals(model, entry)
 	end
 end)

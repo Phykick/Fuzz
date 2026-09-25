@@ -179,6 +179,29 @@ def main():
         L.append("\t\t%s = { center = %s, size = Vector3.new(%s, %s, %s) }," % (
             bone, vec_lua(c), fmt(sz.x), fmt(sz.z), fmt(sz.y)))
     L.append("\t},")
+    # weapon grip frames at rest. Weapon-local Roblox axes: +Y = blade / upper limb,
+    # sword -X = true edge, bow +Z = string side. Columns are authoring-space directions.
+    def wframe(pos, F):
+        cols = [F @ Vector((-1, 0, 0)), F @ Vector((0, 0, 1)), F @ Vector((0, 1, 0))]
+        return "CFrame.fromMatrix(%s, %s, %s, %s)" % (vec_lua(pos), *(vec_lua(c) for c in cols))
+    L.append("\tweapons = {")
+    L.append('\t\tSword = { bone = "SwordHandle", fallback = "RightHand", rest = %s },' % wframe(R.SWORD_REST_POS, R.SWORD_REST_FRAME))
+    L.append('\t\tBow = { bone = "BowHandle", fallback = "LeftHand", rest = %s },' % wframe(R.BOW_REST_POS, R.BOW_REST_FRAME))
+    L.append("\t},")
+    sw = meshes.SWORD
+    L.append("\tswordDims = { gripTop = %s, guardH = %s, bladeLen = %s, bladeW0 = %s, bladeW1 = %s, bladeT = %s, "
+             "gripLen = %s, gripR = %s, guardSpan = %s, pommelR = %s }," % tuple(fmt(x) for x in (
+                 sw["grip_top"], sw["guard_h"], sw["blade_len"], sw["blade_w0"], sw["blade_w1"], sw["blade_t0"],
+                 sw["grip_len"], sw["grip_rx"], sw["guard_span"], sw["pommel_r"])))
+    bw = meshes.BOW
+    curve = []
+    for i in range(-12, 13):
+        z = bw["half_len"] * i / 12
+        curve.append("{ %s, %s }" % (fmt(z), fmt(meshes.bow_centerline(z))))
+    L.append("\t-- bow centreline in weapon space: { along limb (+Y), toward string (+Z) }")
+    L.append("\tbowCurve = { %s }," % ", ".join(curve))
+    L.append("\tbowDims = { wGrip = %s, dGrip = %s, wTip = %s, dTip = %s, gripHalf = %s }," % tuple(fmt(x) for x in (
+        bw["w_grip"], bw["d_grip"], bw["w_tip"], bw["d_tip"], bw["grip_half"])))
     L.append("\tstudsPerMetre = %s," % fmt(meshes.M))
     L.append("\tarrowLength = %s," % fmt(meshes.ARROW["length"] + 0.3))
     L.append("}")

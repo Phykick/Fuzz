@@ -363,6 +363,16 @@ function PoseDriver.bind(model: Model)
 		end
 	end
 
+	-- held-weapon frames (grip), riding on the weapon joint or, failing that, the hand
+	self.weapons = {}
+	for wname, w in RigData.weapons do
+		local bone = nodes[w.bone] and w.bone or (nodes[w.fallback] and w.fallback)
+		if bone then
+			local restW = CFrame.new(self:mapPoint(w.rest.Position)) * G * w.rest.Rotation
+			self.weapons[wname] = { bone = bone, offset = restFrame[bone]:ToObjectSpace(restW) }
+		end
+	end
+
 	-- hurtboxes from the authoring body (independent of how parts were imported)
 	for b, hb in RigData.hurtboxes do
 		if nodes[b] then
@@ -449,6 +459,16 @@ function PoseDriver:pointWorld(name: string, rootCFrame: CFrame?): Vector3?
 	end
 	local f = self.posed[pt.bone] or self.restFrame[pt.bone]
 	return (rootCFrame or self.hrp.CFrame) * f * pt.offset
+end
+
+-- World frame of a held weapon's grip ("Sword" / "Bow") from the last solve().
+function PoseDriver:weaponWorld(name: string, rootCFrame: CFrame?): CFrame?
+	local w = self.weapons[name]
+	if not w then
+		return nil
+	end
+	local f = self.posed[w.bone] or self.restFrame[w.bone]
+	return (rootCFrame or self.hrp.CFrame) * f * w.offset
 end
 
 -- World frame of a bone from the last solve().

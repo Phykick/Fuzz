@@ -28,6 +28,7 @@ local CFrame = {}
 local C = {}
 C.__index = function(c, k)
 	if k == "Position" then return c.p end
+	if k == "Rotation" then return setmetatable({ p = Vector3.zero, r = c.r }, C) end
 	return C[k]
 end
 local function mk(p, r) return setmetatable({ p = p, r = r }, C) end

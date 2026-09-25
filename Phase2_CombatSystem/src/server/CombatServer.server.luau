@@ -177,11 +177,13 @@ local function fx(kind, pos)
 end
 
 local function setWeaponVisibility(c)
-	for name, weapon in { SwordHandle = "Sword", BowHandle = "Bow" } do
-		local t = (c.weapon == weapon) and 0 or 1
-		for _, d in c.model:GetDescendants() do
-			if d:IsA("BasePart") and PoseDriver.boneName(d.Name) == name then
-				d.Transparency = t
+	-- the held weapons are drawn by the clients (WeaponModels) on the animated grip;
+	-- any weapon meshes that came with the imported rig are hidden to avoid doubles
+	for _, d in c.model:GetDescendants() do
+		if d:IsA("BasePart") then
+			local n = PoseDriver.boneName(d.Name)
+			if n == "SwordHandle" or n == "BowHandle" then
+				d.Transparency = 1
 			end
 		end
 	end

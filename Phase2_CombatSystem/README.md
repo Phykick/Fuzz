@@ -28,6 +28,11 @@ runtime pose driver writes `Motor6D.Transform` itself, so they play for your own
    `[Combat] Client ready.`
 4. **Press G** to spawn a sparring partner in front of you.
 
+**Weapons.** The sword and bow you hold are drawn by the client and locked to the animated grip every frame, so they
+work however the rig was imported. Any weapon meshes that came with the rig are hidden. To use your own imported
+models, put `Sword` and `Bow` models in `ReplicatedStorage.CombatAssets`: pivot at the grip, +Y along the blade or
+upper limb, bowstring on the +Z side. Otherwise a faithful stand-in built from parts is used.
+
 **Optional:**
 - Put an `Arrow` model at `ReplicatedStorage.CombatAssets.Arrow` to use the real arrow mesh (import
   `Arrow_Battlefield.fbx`, pivot at the nock, pointing −Z). Otherwise a simple arrow is built from parts.
