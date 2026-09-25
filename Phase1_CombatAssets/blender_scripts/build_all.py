@@ -742,7 +742,8 @@ def export_all(sc, rig_ob, body, baked, assets, held):
     # at exactly the right grip offset (no manual C0 entry)
     bound = [bound_weapon("SwordHandle_Geo", assets["sword"], list(assets["sword_parts"].values()),
                           R.SWORD_REST_FRAME, R.SWORD_REST_POS, "SwordHandle", rig_ob),
-             bound_weapon("BowHandle_Geo", assets["bow_rig"], list(assets["bow_meshes"]),
+             # bow limbs only: the string is drawn live in Roblox (Beams to the draw hand)
+             bound_weapon("BowHandle_Geo", assets["bow_rig"], [assets["bow_meshes"][0]],
                           R.BOW_REST_FRAME, R.BOW_REST_POS, "BowHandle", rig_ob)]
     select_only(rig_objs + bound)
     bpy.ops.export_scene.fbx(filepath=os.path.join(FBX, "R15_CombatRig_Armed.fbx"), use_selection=True,
@@ -799,7 +800,7 @@ def main():
 
     top = coll("COMBAT_ASSETS", sc.collection)
     cols = {n: coll(n, top) for n in ("SWORD", "BOW", "ARROW", "R15_RIG", "ANIMATIONS")}
-    for n in ("SWORD", "BOW", "REACTIONS"):
+    for n in ("SWORD", "BOW", "REACTIONS", "LOCOMOTION"):
         cols["ANIM_" + n] = coll("ANIM_" + n, cols["ANIMATIONS"])
     cols["DEMO"] = coll("DEMO_SCENE", top)
 

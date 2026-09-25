@@ -114,20 +114,21 @@ def attack_high_right():
              chest_rot=(-2, -2, -30),
              **sword(-0.68, -0.28, 4.01, (-0.18, 0.48, 0.86), (0.1, -0.87, 0.48)))
     # 3 acceleration: hips unwind first, shoulders follow, blade comes over
-    accel = P(load, footL=(0.41, -1.30, 4, 4, 0.10), pelvis_pos=(0.03, -0.12, -0.34), pelvis_rot=(6, 0, -24),
+    accel = P(load, footL=(0.41, -1.42, 4, 4, 0.12), pelvis_pos=(0.03, -0.16, -0.34), pelvis_rot=(6, 0, -24),
               chest_rot=(4, 0, -12), elbowR=(-0.6, 0.3, -0.9),
-              **sword(-0.45, -1.00, 3.92, (0.22, -0.55, 0.80), (0.35, -0.75, -0.55)))
-    # 4 impact: diagonal line through the opponent's left shoulder/neck
-    impact = P(accel, footL=(0.40, -1.45, 3, 0, 0), pelvis_pos=(0.02, -0.34, -0.38), pelvis_rot=(10, 0, -8),
-               chest_rot=(9, 0, 8), elbowR=(-0.4, 0.4, -1.0), elbowL=(0.4, 0.3, -1.0),
-               **sword(0.02, -1.62, 3.30, (0.52, -0.80, 0.30), (0.45, 0.0, -0.89)))
+              **sword(-0.42, -1.05, 4.05, (0.05, -0.45, 0.89), (0.25, -0.85, -0.45)))
+    # 4 impact: blade extended at the opponent's left shoulder/neck, true edge leading down-left
+    impact = P(accel, footL=(0.40, -1.62, 3, 0, 0), footR=piv(FEET_GUARD["footR"], -50, 14),
+               pelvis_pos=(0.02, -0.44, -0.39), pelvis_rot=(10, 0, -10),
+               chest_rot=(9, 0, 6), elbowR=(-0.4, 0.4, -1.0), elbowL=(0.4, 0.3, -1.0),
+               **sword(-0.12, -1.72, 3.55, (0.10, -0.97, 0.20), (0.45, 0.0, -0.89)))
     # 5 follow-through: blade continues to low left and is braked by the body
-    follow = P(impact, pelvis_pos=(0.02, -0.38, -0.40), pelvis_rot=(12, 1, -2), chest_rot=(12, 2, 16),
-               **sword(0.30, -1.30, 2.70, (0.75, -0.40, -0.52), (0.3, 0.3, -0.9)))
+    follow = P(impact, pelvis_pos=(0.02, -0.46, -0.41), pelvis_rot=(12, 1, -2), chest_rot=(12, 2, 16),
+               **sword(0.20, -1.45, 2.85, (0.62, -0.62, -0.48), (0.4, 0.3, -0.87)))
     settle = P(follow, pelvis_pos=(0.02, -0.36, -0.39), pelvis_rot=(11, 1, -4), chest_rot=(10, 2, 14),
                **sword(0.36, -1.05, 2.58, (0.60, -0.12, -0.79), (0.2, 0.9, -0.2)))
     # 6 recovery: bring the point back online, then return the front foot
-    rec1 = P(settle, pelvis_pos=(0.03, -0.25, -0.35), pelvis_rot=(9, 0, -16), chest_rot=(6, 1, 0),
+    rec1 = P(settle, footR=FEET_GUARD["footR"], pelvis_pos=(0.03, -0.25, -0.35), pelvis_rot=(9, 0, -16), chest_rot=(6, 1, 0),
              **sword(0.05, -1.20, 2.80, (0.30, -0.80, 0.30), (0.2, 0.0, -0.9)))
     rec2 = P(GUARD, footL=(0.41, -1.30, 4, 6, 0.07), pelvis_pos=(0.03, -0.12, -0.30))
     rec3 = P(GUARD, footL=L0)
@@ -148,17 +149,18 @@ def attack_high_left():
              **sword(0.52, -0.55, 3.95, (0.25, 0.40, 0.88), (-0.1, -0.9, 0.42)))
     load = P(wind, footL=(0.42, -1.12, 5, 8, 0.05), pelvis_pos=(0.05, 0.07, -0.32), pelvis_rot=(3, -1, -21),
              **sword(0.54, -0.52, 3.98, (0.22, 0.48, 0.85), (-0.1, -0.86, 0.5)))
-    accel = P(load, footL=(0.41, -1.30, 4, 4, 0.10), pelvis_pos=(0.03, -0.12, -0.34), pelvis_rot=(6, 0, -30),
+    accel = P(load, footL=(0.41, -1.42, 4, 4, 0.12), pelvis_pos=(0.03, -0.16, -0.34), pelvis_rot=(6, 0, -30),
               chest_rot=(4, 0, -6), elbowL=(0.8, 0.2, -0.7),
-              **sword(0.10, -1.62, 3.80, (-0.20, -0.55, 0.81), (-0.35, -0.75, -0.55)))
-    impact = P(accel, footL=(0.40, -1.45, 3, 0, 0), pelvis_pos=(0.02, -0.34, -0.38), pelvis_rot=(10, 0, -38),
-               chest_rot=(9, 0, -14), elbowR=(-0.4, 0.4, -1.0), elbowL=(0.4, 0.3, -1.0),
-               **sword(-0.25, -1.85, 3.25, (-0.52, -0.80, 0.30), (-0.45, 0.0, -0.89)))
-    follow = P(impact, pelvis_pos=(0.02, -0.38, -0.40), pelvis_rot=(12, -1, -44), chest_rot=(12, -2, -18),
-               **sword(-0.50, -1.15, 2.72, (-0.75, -0.40, -0.52), (-0.3, 0.3, -0.9)))
+              **sword(0.22, -1.55, 3.95, (-0.08, -0.45, 0.89), (-0.25, -0.85, -0.45)))
+    impact = P(accel, footL=(0.40, -1.62, 3, 0, 0), footR=piv(FEET_GUARD["footR"], -50, 14),
+               pelvis_pos=(0.02, -0.44, -0.39), pelvis_rot=(10, 0, -30),
+               chest_rot=(9, 0, -4), elbowR=(-0.4, 0.4, -1.0), elbowL=(0.4, 0.3, -1.0),
+               **sword(-0.10, -1.80, 3.50, (-0.12, -0.97, 0.20), (-0.45, 0.0, -0.89)))
+    follow = P(impact, pelvis_pos=(0.02, -0.46, -0.41), pelvis_rot=(12, -1, -44), chest_rot=(12, -2, -18),
+               **sword(-0.45, -1.30, 2.80, (-0.62, -0.62, -0.48), (-0.3, 0.3, -0.9)))
     settle = P(follow, pelvis_pos=(0.02, -0.36, -0.39), pelvis_rot=(11, -1, -42), chest_rot=(10, -2, -17),
                **sword(-0.55, -0.92, 2.62, (-0.60, -0.12, -0.79), (-0.2, 0.9, -0.2)))
-    rec1 = P(settle, pelvis_pos=(0.03, -0.25, -0.35), pelvis_rot=(9, 0, -34), chest_rot=(6, -1, -12),
+    rec1 = P(settle, footR=FEET_GUARD["footR"], pelvis_pos=(0.03, -0.25, -0.35), pelvis_rot=(9, 0, -34), chest_rot=(6, -1, -12),
              **sword(-0.25, -1.15, 2.80, (-0.20, -0.85, 0.40), (0.0, -0.4, -0.9)))
     rec2 = P(GUARD, footL=(0.41, -1.30, 4, 6, 0.07), pelvis_pos=(0.03, -0.12, -0.30))
     rec3 = P(GUARD, footL=L0)
@@ -178,18 +180,21 @@ def attack_horizontal_rl():
     wind = P(prep, pelvis_pos=(-0.04, 0.16, -0.30), pelvis_rot=(2, -2, -46), chest_rot=(0, -2, -34),
              **sword(-0.66, -0.20, 3.55, (-0.55, 0.55, 0.62), (-0.2, -0.9, 0.5)))
     # rear foot pivots on the ball (heel lifts, toes turn) as the hips drive round
-    drive = P(wind, footR=piv(FEET_GUARD["footR"], -38, 14), pelvis_pos=(-0.02, 0.05, -0.33), pelvis_rot=(5, -1, -30),
+    drive = P(wind, footR=piv(FEET_GUARD["footR"], -38, 14), footL=(0.41, -1.24, 4, 4, 0.10),
+              pelvis_pos=(-0.02, -0.02, -0.33), pelvis_rot=(5, -1, -30),
               chest_rot=(3, -1, -20),
               **sword(-0.62, -0.55, 3.55, (-0.60, -0.10, 0.78), (0.0, -0.99, 0.0)))
-    impact = P(drive, footR=piv(FEET_GUARD["footR"], -24, 22), pelvis_pos=(0.02, -0.14, -0.36), pelvis_rot=(8, 0, -6),
+    impact = P(drive, footR=piv(FEET_GUARD["footR"], -24, 22), footL=(0.40, -1.40, 3, 0, 0),
+               pelvis_pos=(0.02, -0.32, -0.37), pelvis_rot=(8, 0, -6),
                chest_rot=(6, 0, 12), elbowR=(-0.4, 0.5, -1.0), elbowL=(0.6, 0.3, -0.9),
-               **sword(-0.05, -1.55, 3.40, (0.42, -0.90, 0.10), (0.9, 0.42, 0.0)))
-    follow = P(impact, pelvis_pos=(0.04, -0.16, -0.37), pelvis_rot=(8, 1, 6), chest_rot=(7, 1, 24),
+               **sword(-0.22, -1.85, 3.42, (0.26, -0.96, 0.08), (0.96, 0.26, 0.0)))
+    follow = P(impact, pelvis_pos=(0.04, -0.34, -0.38), pelvis_rot=(8, 1, 6), chest_rot=(7, 1, 24),
                elbowL=(0.9, 0.2, -0.5),
-               **sword(0.52, -0.95, 3.20, (0.95, 0.05, -0.28), (0.0, 1.0, 0.0)))
+               **sword(0.45, -1.35, 3.20, (0.93, -0.30, -0.20), (0.3, 0.95, 0.0)))
     settle = P(follow, pelvis_rot=(8, 1, 4), chest_rot=(7, 1, 22),
                **sword(0.58, -0.65, 3.05, (0.80, 0.45, -0.38), (-0.45, 0.85, 0.1)))
-    rec1 = P(settle, footR=piv(FEET_GUARD["footR"], -38, 10), pelvis_pos=(0.03, -0.10, -0.32), pelvis_rot=(7, 0, -14),
+    rec1 = P(settle, footR=piv(FEET_GUARD["footR"], -38, 10), footL=(0.41, -1.22, 4, 5, 0.08),
+             pelvis_pos=(0.03, -0.14, -0.32), pelvis_rot=(7, 0, -14),
              chest_rot=(5, 0, 2), elbowL=(0.5, 0.35, -1.0),
              **sword(0.15, -1.15, 3.00, (0.30, -0.80, 0.45), (0.0, -0.5, -0.85)))
     rec2 = P(GUARD, footR=R0)
@@ -211,9 +216,9 @@ def attack_horizontal_lr():
     drive = P(wind, footL=piv(FEET_GUARD["footL"], -6, 10), pelvis_pos=(0.03, -0.06, -0.33), pelvis_rot=(5, 1, -22),
               chest_rot=(3, 1, 14),
               **sword(0.50, -0.75, 3.52, (0.62, -0.15, 0.77), (0.0, -0.99, 0.0)))
-    impact = P(drive, footL=piv(FEET_GUARD["footL"], -18, 16), pelvis_pos=(0.0, -0.12, -0.36), pelvis_rot=(8, 0, -42),
-               chest_rot=(6, 0, -14), elbowR=(-0.7, 0.3, -0.8), elbowL=(0.4, 0.5, -1.0),
-               **sword(-0.25, -1.63, 3.37, (-0.42, -0.90, 0.10), (-0.9, 0.42, 0.0)))
+    impact = P(drive, footL=piv(FEET_GUARD["footL"], -18, 16), pelvis_pos=(0.0, -0.26, -0.38), pelvis_rot=(9, 0, -32),
+               chest_rot=(7, 0, -4), elbowR=(-0.7, 0.3, -0.8), elbowL=(0.4, 0.5, -1.0),
+               **sword(-0.14, -1.72, 3.38, (-0.26, -0.96, 0.08), (-0.96, 0.26, 0.0)))
     follow = P(impact, pelvis_pos=(-0.02, -0.10, -0.37), pelvis_rot=(8, -1, -46), chest_rot=(7, -1, -20),
                elbowR=(-0.9, 0.2, -0.5),
                **sword(-0.85, -1.00, 3.15, (-0.95, 0.05, -0.28), (0.0, 1.0, 0.0)))
@@ -499,6 +504,76 @@ def bow_lower():
                 notes="Relax out of the shot: bow lowers to the ready position, draw hand drops to the side.")
 
 
+# ==========================================================================
+# LOCOMOTION - in-place step cycles for moving in guard (sword) / ready (bow)
+# The runtime blends the four directions by the character's velocity and
+# scales playback so planted feet match ground speed (no skating).
+# ==========================================================================
+LOCO_SPEED = 3.6      # authored ground speed, studs/s (~1.2 m/s: deliberate guard steps)
+LOCO_CYCLE = 16       # frames per full cycle (two steps)
+LOCO_SWING = 6        # frames each foot is in the air
+
+
+def _hermite(p0, p1, m0, m1, t):
+    t2, t3 = t * t, t * t * t
+    return ((2 * t3 - 3 * t2 + 1) * p0 + (t3 - 2 * t2 + t) * m0 +
+            (-2 * t3 + 3 * t2) * p1 + (t3 - t2) * m1)
+
+
+def _loco(name, base, direction, category, lift=0.10, sink=0.06):
+    dx, dy = direction
+    vf = LOCO_SPEED / 30.0
+    C, S = LOCO_CYCLE, LOCO_SWING
+    A = vf * (C - S) / 2.0                       # half the planted travel
+    feet = {k: base[k] for k in ("footL", "footR")}
+    lead = max(feet, key=lambda k: feet[k][0] * dx + feet[k][1] * dy)
+    offs = {lead: 0, ("footR" if lead == "footL" else "footL"): C // 2}
+    keys = []
+    for f in range(C + 1):
+        d = dict(base)
+        for k, (bx, by, yaw, heel, _) in feet.items():
+            u = (f - offs[k]) % C
+            if u < S:        # swing: Hermite with ground-speed tangents at both ends
+                t = u / S
+                a = _hermite(-A, A, -vf * S, -vf * S, t)
+                z = lift * math.sin(math.pi * t)
+                hl = 10.0 * math.sin(math.pi * min(1.0, t * 2.0)) if t < 0.5 else 0.0
+            else:            # planted: slides back at exactly ground speed
+                a = A - vf * (u - S)
+                z, hl = 0.0, 0.0
+            d[k] = (bx + dx * a, by + dy * a, yaw, heel + hl, z)
+        ph = 2 * math.pi * f / C
+        px, py, pz = base["pelvis_pos"]
+        bob = -0.03 * (0.5 - 0.5 * math.cos(2 * ph))
+        sway = 0.035 * math.sin(ph)
+        dpx, dpz = sway * (1 if lead == "footL" else -1), bob
+        d["pelvis_pos"] = (px + dpx, py, pz + dpz - sink)
+        for ch in ("sword_pos", "bow_pos", "draw_pos", "rh_free"):
+            if ch in d:          # hands ride the bob, not the constant sink
+                x, y, z = d[ch]
+                d[ch] = (x + dpx * 0.8, y, z + dpz * 0.9 - (sink * 0.5 if ch == "sword_pos" else 0.0))
+        keys.append((f, d))
+    clip = Clip(name, keys, loop=True, category=category,
+                notes="In-place step cycle, %.1f studs/s authored. Blend by direction, scale rate = speed / %.1f."
+                      % (LOCO_SPEED, LOCO_SPEED))
+    clip.root_velocity = (dx * vf, dy * vf)
+    return clip
+
+
+# travelling stance: feet a little closer together than the static guard
+WALK_GUARD = P(GUARD, footL=(0.42, -0.84, 5, 0, 0), footR=(-0.48, 0.36, -48, 0, 0))
+
+LOCO_DIRS = {"Fwd": (0, -1), "Back": (0, 1), "Left": (1, 0), "Right": (-1, 0)}
+
+
+def locomotion_clips():
+    out = []
+    for dn, dv in LOCO_DIRS.items():
+        out.append(_loco("Sword_Walk_" + dn, WALK_GUARD, dv, "LOCOMOTION"))
+        out.append(_loco("Bow_Walk_" + dn, BOW_IDLE, dv, "LOCOMOTION", sink=0.16))
+    return out
+
+
 def all_clips():
     clips = [sword_idle(), sword_block(), sword_block_hold(), sword_block_recover()]
     attacks = [attack_high_right(), attack_high_left(), attack_horizontal_rl(), attack_horizontal_lr(), attack_thrust()]
@@ -507,4 +582,5 @@ def all_clips():
         clips.append(_recovery_clip(a, a.name.replace("Sword_Attack_", "Sword_Recovery_")))
     clips += [hit_torso(), hit_arm(), hit_heavy(), stagger()]
     clips += [bow_idle(), bow_nock(), bow_draw(), bow_full_draw(), bow_aim(), bow_release(), bow_lower()]
+    clips += locomotion_clips()
     return clips

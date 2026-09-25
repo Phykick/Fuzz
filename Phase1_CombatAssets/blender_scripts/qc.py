@@ -79,7 +79,10 @@ def analyse(clip, poses):
             ball = ankle + pose.delta[side + "Foot"] @ Vector((0, -anim.TOE_TIP, -R.Z_ANKLE))  # toe tip
             planted = lift < 1e-4
             if planted and side in prev_ball and prev_ball[side][1]:
-                rep["foot_slide"] = max(rep["foot_slide"], (ball - prev_ball[side][0]).length)
+                # in-place locomotion: a planted foot must move back at exactly ground speed
+                rv = getattr(clip, "root_velocity", (0.0, 0.0))
+                expect = Vector((-rv[0], -rv[1], 0.0))
+                rep["foot_slide"] = max(rep["foot_slide"], (ball - prev_ball[side][0] - expect).length)
             prev_ball[side] = (ball, planted)
             for c in foot_corners(pose, side):
                 rep["min_foot_z"] = min(rep["min_foot_z"], c.z)

@@ -1,0 +1,17 @@
+{
+  "name": "MedievalCombat",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "Combat": { "$path": "src/shared/Combat" }
+    },
+    "ServerScriptService": {
+      "CombatServer": { "$path": "src/server/CombatServer.server.luau" }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "CombatClient": { "$path": "src/client/CombatClient.client.luau" }
+      }
+    }
+  }
+}

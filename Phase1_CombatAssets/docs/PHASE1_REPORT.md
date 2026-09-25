@@ -90,6 +90,7 @@ exported as its own `Sword_Recovery_*` clip, so Phase 2 can control the opening 
 | Bow_Aim | 60 | 2.00 s | ✔ | FullDraw 0 |
 | Bow_Release | 20 | 0.67 s | | Release 1 · Recovery 6 · ReleaseEnd 20 |
 | Bow_Lower | 30 | 1.00 s | | LowerStart 0 · LowerEnd 30 |
+| Sword_Walk_Fwd / Back / Left / Right, Bow_Walk_Fwd / Back / Left / Right | 16 | 0.53 s | ✔ | – (in-place step cycles authored at 3.6 studs/s; the runtime blends them by direction and scales playback to ground speed) |
 
 **Timing design (attacks):** about 0.5 s of readable startup where feints and interrupts are
 possible (0 → AttackActive), a 0.27 s hit window (AttackActive → RecoveryStart), and about 0.83 s
@@ -111,7 +112,7 @@ by `anim.py`:
   so it never snaps.
 - **Output.** The result is baked as plain FK keys on the R15 bones.
 
-### Automated QC: all 25 clips pass (`docs/qc_report.md`)
+### Automated QC: all 33 clips pass (`docs/qc_report.md`)
 
 - Hand-on-grip IK error: **0.000** in every clip. Leg IK error: 0.000.
 - Planted-foot slide: **≤ 0.001 studs** per frame, and exactly 0 in 21 clips.

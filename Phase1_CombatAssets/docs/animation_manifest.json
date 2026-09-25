@@ -643,6 +643,86 @@
         }
       ],
       "notes": "Relax out of the shot: bow lowers to the ready position, draw hand drops to the side."
+    },
+    {
+      "name": "Sword_Walk_Fwd",
+      "category": "LOCOMOTION",
+      "file": "export/fbx/ANIM_Sword_Walk_Fwd.fbx",
+      "frames": 16,
+      "seconds": 0.533,
+      "loop": true,
+      "markers": [],
+      "notes": "In-place step cycle, 3.6 studs/s authored. Blend by direction, scale rate = speed / 3.6."
+    },
+    {
+      "name": "Bow_Walk_Fwd",
+      "category": "LOCOMOTION",
+      "file": "export/fbx/ANIM_Bow_Walk_Fwd.fbx",
+      "frames": 16,
+      "seconds": 0.533,
+      "loop": true,
+      "markers": [],
+      "notes": "In-place step cycle, 3.6 studs/s authored. Blend by direction, scale rate = speed / 3.6."
+    },
+    {
+      "name": "Sword_Walk_Back",
+      "category": "LOCOMOTION",
+      "file": "export/fbx/ANIM_Sword_Walk_Back.fbx",
+      "frames": 16,
+      "seconds": 0.533,
+      "loop": true,
+      "markers": [],
+      "notes": "In-place step cycle, 3.6 studs/s authored. Blend by direction, scale rate = speed / 3.6."
+    },
+    {
+      "name": "Bow_Walk_Back",
+      "category": "LOCOMOTION",
+      "file": "export/fbx/ANIM_Bow_Walk_Back.fbx",
+      "frames": 16,
+      "seconds": 0.533,
+      "loop": true,
+      "markers": [],
+      "notes": "In-place step cycle, 3.6 studs/s authored. Blend by direction, scale rate = speed / 3.6."
+    },
+    {
+      "name": "Sword_Walk_Left",
+      "category": "LOCOMOTION",
+      "file": "export/fbx/ANIM_Sword_Walk_Left.fbx",
+      "frames": 16,
+      "seconds": 0.533,
+      "loop": true,
+      "markers": [],
+      "notes": "In-place step cycle, 3.6 studs/s authored. Blend by direction, scale rate = speed / 3.6."
+    },
+    {
+      "name": "Bow_Walk_Left",
+      "category": "LOCOMOTION",
+      "file": "export/fbx/ANIM_Bow_Walk_Left.fbx",
+      "frames": 16,
+      "seconds": 0.533,
+      "loop": true,
+      "markers": [],
+      "notes": "In-place step cycle, 3.6 studs/s authored. Blend by direction, scale rate = speed / 3.6."
+    },
+    {
+      "name": "Sword_Walk_Right",
+      "category": "LOCOMOTION",
+      "file": "export/fbx/ANIM_Sword_Walk_Right.fbx",
+      "frames": 16,
+      "seconds": 0.533,
+      "loop": true,
+      "markers": [],
+      "notes": "In-place step cycle, 3.6 studs/s authored. Blend by direction, scale rate = speed / 3.6."
+    },
+    {
+      "name": "Bow_Walk_Right",
+      "category": "LOCOMOTION",
+      "file": "export/fbx/ANIM_Bow_Walk_Right.fbx",
+      "frames": 16,
+      "seconds": 0.533,
+      "loop": true,
+      "markers": [],
+      "notes": "In-place step cycle, 3.6 studs/s authored. Blend by direction, scale rate = speed / 3.6."
     }
   ]
 }

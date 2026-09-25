@@ -1,0 +1,1187 @@
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX0000002B"><Properties><string name="Name">CombatServer</string><ProtectedString name="Source"><![CDATA[--!nonstrict
+--[[
+	CombatServer: authoritative melee + archery combat (KCD-inspired).
+
+	- Turns the imported CombatRig into the player character (StarterCharacter)
+	- Per-fighter state machine driven by the animation markers (startup,
+	  active window, recovery) -> feints, combos and punishable openings
+	- Stamina economy, blocking / perfect blocks / guard breaks / ripostes
+	- Server-side blade sweeps against posed hitboxes (same pose math the
+	  clients render, so hits line up with what players see)
+	- Bow: nock -> draw -> aim -> release with draw strength, spread and
+	  ballistic arrows that stick where they land
+	- Sparring partner AI for testing
+]]
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
+local StarterPlayer = game:GetService("StarterPlayer")
+local RunService = game:GetService("RunService")
+local Debris = game:GetService("Debris")
+
+local Combat = ReplicatedStorage:WaitForChild("Combat")
+local Config = require(Combat.Config)
+local PoseDriver = require(Combat.PoseDriver)
+local CharacterAnimator = require(Combat.CharacterAnimator)
+local Geometry = require(Combat.Geometry)
+local ArrowModel = require(Combat.ArrowModel)
+local RigData = require(Combat.RigData)
+
+local rng = Random.new()
+
+---------------------------------------------------------------------------
+-- remotes
+---------------------------------------------------------------------------
+local remotes = ReplicatedStorage:FindFirstChild("CombatRemotes")
+if not remotes then
+	remotes = Instance.new("Folder")
+	remotes.Name = "CombatRemotes"
+	remotes.Parent = ReplicatedStorage
+end
+local function remote(name)
+	local r = remotes:FindFirstChild(name)
+	if not r then
+		r = Instance.new("RemoteEvent")
+		r.Name = name
+		r.Parent = remotes
+	end
+	return r
+end
+local Request = remote("Request")
+local Notify = remote("Notify")
+
+local arrowFolder = workspace:FindFirstChild("CombatArrows") or Instance.new("Folder")
+arrowFolder.Name = "CombatArrows"
+arrowFolder.Parent = workspace
+
+---------------------------------------------------------------------------
+-- character template
+---------------------------------------------------------------------------
+local function hasSword(m)
+	return m:FindFirstChild("SwordHandle", true) ~= nil or m:FindFirstChild("SwordHandle_Geo", true) ~= nil
+end
+
+local function isCombatRig(m)
+	return m:IsA("Model") and m:FindFirstChildOfClass("Humanoid") ~= nil and m:FindFirstChild("HumanoidRootPart") ~= nil
+		and hasSword(m)
+end
+
+local function findTemplate()
+	local t = ServerStorage:FindFirstChild("CombatRigTemplate")
+	if t then
+		return t
+	end
+	local sc = StarterPlayer:FindFirstChild("StarterCharacter")
+	if sc and isCombatRig(sc) then
+		return sc
+	end
+	for _, container in { workspace, ReplicatedStorage, ServerStorage } do
+		for _, m in container:GetDescendants() do
+			if isCombatRig(m) and not Players:GetPlayerFromCharacter(m) then
+				return m
+			end
+		end
+	end
+	return nil
+end
+
+-- Make an imported rig a well-behaved Humanoid character.
+local function prepareRig(model: Model, anchored: boolean?)
+	local hum = model:FindFirstChildOfClass("Humanoid")
+	local hrp = model:FindFirstChild("HumanoidRootPart")
+	hum.RigType = Enum.HumanoidRigType.R15
+	if not hum:FindFirstChildOfClass("Animator") then
+		Instance.new("Animator").Parent = hum
+	end
+	for _, d in model:GetDescendants() do
+		if d:IsA("BasePart") then
+			d.Anchored = false
+			d.CanCollide = false
+			d.CanTouch = false
+			local bn = PoseDriver.boneName(d.Name)
+			if bn == "SwordHandle" or bn == "BowHandle" then
+				d.Massless = true
+			end
+		elseif d:IsA("LuaSourceContainer") and d.Name == "Animate" then
+			d:Destroy()
+		end
+	end
+	hum.UseJumpPower = false
+	hum.JumpHeight = 4
+	hrp.CanCollide = true
+	hrp.Transparency = 1
+	hrp.Anchored = anchored == true
+	-- HipHeight so the authored floor (feet planted in every clip) is the real floor
+	local rig = PoseDriver.bind(model)
+	if rig then
+		local floor = rig:mapPoint(Vector3.zero)
+		hum.HipHeight = math.max(0.1, -floor.Y - hrp.Size.Y / 2)
+	end
+	hum.BreakJointsOnDeath = true
+	model:SetAttribute("CombatRig", true)
+	return model
+end
+
+local template = findTemplate()
+if not template then
+	warn("[Combat] No combat rig found. Import R15_CombatRig_Armed.fbx (it must contain a Humanoid, HumanoidRootPart and a SwordHandle part) into Workspace, then press Play again.")
+else
+	local master = template:Clone()
+	master.Name = "CombatRigTemplate"
+	prepareRig(master)
+	master.Parent = ServerStorage
+	-- (changes made while playing are discarded when you stop, so this is safe)
+	local existing = StarterPlayer:FindFirstChild("StarterCharacter")
+	if existing and not hasSword(existing) then
+		warn("[Combat] Replacing the existing StarterCharacter with the combat rig for this session.")
+		existing:Destroy()
+		existing = nil
+	end
+	if not existing then
+		local sc = master:Clone()
+		sc.Name = "StarterCharacter"
+		sc.Parent = StarterPlayer
+	end
+	template = master
+	print("[Combat] Using '" .. template.Name .. "' as the player character and sparring partner.")
+end
+
+---------------------------------------------------------------------------
+-- combatants
+---------------------------------------------------------------------------
+local combatants = {} -- [Model] = combatant
+
+local function now()
+	return workspace:GetServerTimeNow()
+end
+
+local function toast(c, text, color)
+	if c.player then
+		Notify:FireClient(c.player, "Toast", text, color)
+	end
+end
+
+local function fx(kind, pos)
+	Notify:FireAllClients("FX", kind, pos)
+end
+
+local function setWeaponVisibility(c)
+	for name, weapon in { SwordHandle = "Sword", BowHandle = "Bow" } do
+		local p = c.model:FindFirstChild(name, true) or c.model:FindFirstChild(name .. "_Geo", true)
+		if p then
+			local t = (c.weapon == weapon) and 0 or 1
+			for _, d in p:GetDescendants() do
+				if d:IsA("BasePart") or d:IsA("Decal") then
+					d.Transparency = t
+				end
+			end
+			if p:IsA("BasePart") then
+				p.Transparency = t
+			end
+		end
+	end
+	c.model:SetAttribute("Weapon", c.weapon)
+end
+
+local function setAct(c, seq, flags, rate, t0)
+	c.actId += 1
+	c.model:SetAttribute("Act", CharacterAnimator.encodeAct(c.actId, t0 or now(), rate or 1, flags or "", seq))
+end
+
+local function clearAct(c)
+	c.actId += 1
+	c.model:SetAttribute("Act", "")
+end
+
+local function spend(c, amount)
+	c.stamina = math.max(0, c.stamina - amount)
+	c.lastSpend = now()
+end
+
+local function register(model: Model, opts)
+	if combatants[model] then
+		return combatants[model]
+	end
+	local anim, err = CharacterAnimator.new(model)
+	if not anim then
+		warn("[Combat] Cannot drive " .. model:GetFullName() .. ": " .. tostring(err))
+		return nil
+	end
+	local hum = model:FindFirstChildOfClass("Humanoid")
+	local c = {
+		model = model,
+		humanoid = hum,
+		hrp = model.HumanoidRootPart,
+		anim = anim,
+		player = opts and opts.player,
+		ai = opts and opts.ai,
+		static = opts and opts.static,
+		weapon = "Sword",
+		state = "Idle",
+		action = nil,
+		actId = 0,
+		stamina = Config.Stamina.Max,
+		lastSpend = 0,
+		blockStart = 0,
+		riposteUntil = 0,
+		hitSet = {},
+		prevBlade = nil,
+		sprinting = false,
+		nocked = false,
+		wantDraw = false,
+		aimStart = 0,
+		hurt = {},
+		lastAttr = 0,
+	}
+	combatants[model] = c
+	model:SetAttribute("CombatRig", true)
+	model:SetAttribute("MaxStamina", Config.Stamina.Max)
+	model:SetAttribute("Stamina", c.stamina)
+	model:SetAttribute("State", "Idle")
+	setWeaponVisibility(c)
+	clearAct(c)
+	if hum then
+		hum.Died:Connect(function()
+			c.state = "Dead"
+			c.action = nil
+			clearAct(c)
+			model:SetAttribute("State", "Dead")
+		end)
+	end
+	model.AncestryChanged:Connect(function()
+		if not model:IsDescendantOf(workspace) then
+			combatants[model] = nil
+		end
+	end)
+	return c
+end
+
+---------------------------------------------------------------------------
+-- actions
+---------------------------------------------------------------------------
+local ATTACK_DIRS = { HighRight = true, HighLeft = true, HorizontalRL = true, HorizontalLR = true, Thrust = true }
+
+local function alive(c)
+	return c.state ~= "Dead" and c.humanoid and c.humanoid.Health > 0
+end
+
+local function elapsed(c)
+	return c.action and (now() - c.action.t0) or math.huge
+end
+
+local function canCombo(c)
+	return c.state == "Recovery" and c.action and elapsed(c) >= c.action.recovery + Config.Sword.ComboWindowAfterRecoveryStart
+end
+
+local function startAttack(c, dir)
+	if not alive(c) or c.weapon ~= "Sword" or not ATTACK_DIRS[dir] then
+		return
+	end
+	local ok = c.state == "Idle" or c.state == "Blocking" or c.state == "BlockRecover" or canCombo(c)
+	if not ok then
+		return
+	end
+	if c.stamina < Config.Stamina.MinToAttack then
+		toast(c, "Too exhausted", Color3.fromRGB(230, 170, 60))
+		return
+	end
+	local low = c.stamina < 20
+	spend(c, Config.Stamina.AttackCost[dir])
+	local clip = "Sword_Attack_" .. dir
+	local rate = Config.Sword.AttackRate * (low and 0.88 or 1)
+	local t0 = now()
+	c.action = {
+		kind = "Attack",
+		dir = dir,
+		clip = clip,
+		t0 = t0,
+		active = PoseDriver.marker(clip, "AttackActive") / rate,
+		impact = PoseDriver.marker(clip, "Impact") / rate,
+		recovery = PoseDriver.marker(clip, "RecoveryStart") / rate,
+		finish = PoseDriver.marker(clip, "AttackEnd") / rate,
+		low = low,
+		riposte = t0 < c.riposteUntil,
+		stopped = false,
+	}
+	c.riposteUntil = 0
+	c.hitSet = {}
+	c.prevBlade = nil
+	c.state = "Windup"
+	setAct(c, { clip }, "", rate, t0)
+	Notify:FireAllClients("FX", "Swing", c.hrp.Position, dir)
+end
+
+local function startBlock(c)
+	if not alive(c) or c.weapon ~= "Sword" then
+		return
+	end
+	if c.state == "Windup" then -- feint
+		if c.stamina < Config.Stamina.FeintCost then
+			return
+		end
+		spend(c, Config.Stamina.FeintCost)
+		toast(c, "Feint", Color3.fromRGB(200, 200, 255))
+	elseif not (c.state == "Idle" or c.state == "BlockRecover" or c.state == "Recovering" or canCombo(c)) then
+		return
+	end
+	local t0 = now()
+	c.action = { kind = "Block", t0 = t0 }
+	c.blockStart = t0
+	c.state = "Blocking"
+	setAct(c, { "Sword_Block", "Sword_Block_Hold" }, "u", 1, t0)
+end
+
+local function endBlock(c)
+	if c.state ~= "Blocking" then
+		return
+	end
+	local t0 = now()
+	c.action = { kind = "BlockRecover", t0 = t0, finish = PoseDriver.clipLength("Sword_Block_Recover") }
+	c.state = "BlockRecover"
+	setAct(c, { "Sword_Block_Recover" }, "u", 1, t0)
+end
+
+local function react(c, clip)
+	if not alive(c) then
+		return
+	end
+	local t0 = now()
+	c.action = {
+		kind = "React",
+		clip = clip,
+		t0 = t0,
+		recover = PoseDriver.marker(clip, "RecoveryStart") or 0.3,
+		finish = PoseDriver.clipLength(clip),
+	}
+	c.nocked = false
+	c.wantDraw = false
+	c.state = "Staggered"
+	setAct(c, { clip }, "", 1, t0)
+end
+
+-- bow ----------------------------------------------------------------------
+local function startDraw(c)
+	if c.stamina < Config.Stamina.BowDrawCost then
+		toast(c, "Too exhausted to draw", Color3.fromRGB(230, 170, 60))
+		c.state = "BowReady"
+		return
+	end
+	spend(c, Config.Stamina.BowDrawCost)
+	local t0 = now()
+	c.action = { kind = "Draw", t0 = t0, full = PoseDriver.clipLength("Bow_Draw") }
+	c.state = "BowDraw"
+	setAct(c, { "Bow_Draw", "Bow_Aim" }, "u", 1, t0)
+end
+
+local function holdSetPose(c)
+	-- freeze on the last frame of the nock clip (arrow on the string, bow half raised)
+	setAct(c, { "Bow_Nock" }, "uh", 1, now() - PoseDriver.clipLength("Bow_Nock"))
+end
+
+local function bowPress(c)
+	if not alive(c) or c.weapon ~= "Bow" then
+		return
+	end
+	c.wantDraw = true
+	if c.state == "BowReady" and c.nocked then
+		startDraw(c)
+	elseif c.state == "Idle" then
+		local t0 = now()
+		c.action = { kind = "Nock", t0 = t0, finish = PoseDriver.clipLength("Bow_Nock") }
+		c.state = "BowNock"
+		setAct(c, { "Bow_Nock" }, "uh", 1, t0)
+	end
+end
+
+local fireArrow -- forward
+
+local function bowRelease(c, aimPoint)
+	c.wantDraw = false
+	if c.state ~= "BowDraw" and c.state ~= "BowAim" then
+		return
+	end
+	local frac = c.state == "BowAim" and 1 or math.clamp(elapsed(c) / c.action.full, 0, 1)
+	if frac < Config.Bow.MinDrawToShoot then
+		c.state = "BowReady"
+		c.action = nil
+		holdSetPose(c)
+		return
+	end
+	local hold = c.state == "BowAim" and (now() - c.aimStart) or 0
+	local t0 = now()
+	c.action = { kind = "Release", t0 = t0,
+		finish = PoseDriver.clipLength("Bow_Release") + PoseDriver.clipLength("Bow_Lower") }
+	c.state = "BowRelease"
+	c.nocked = false
+	setAct(c, { "Bow_Release", "Bow_Lower" }, "u", 1, t0)
+	fireArrow(c, frac, aimPoint, hold)
+end
+
+local function bowCancel(c)
+	if c.state == "BowDraw" or c.state == "BowAim" or c.state == "BowReady" or c.state == "BowNock" then
+		local t0 = now()
+		c.nocked = false
+		c.wantDraw = false
+		c.action = { kind = "Lower", t0 = t0, finish = PoseDriver.clipLength("Bow_Lower") }
+		c.state = "BowLower"
+		setAct(c, { "Bow_Lower" }, "u", 1, t0)
+	end
+end
+
+local function switchWeapon(c, weapon)
+	if not alive(c) or (weapon ~= "Sword" and weapon ~= "Bow") or weapon == c.weapon then
+		return
+	end
+	if not (c.state == "Idle" or c.state == "BowReady") then
+		return
+	end
+	c.weapon = weapon
+	c.nocked = false
+	c.action = { kind = "Switch", t0 = now(), finish = 0.45 }
+	c.state = "Switching"
+	clearAct(c)
+	setWeaponVisibility(c)
+	Notify:FireAllClients("FX", "Switch", c.hrp.Position)
+end
+
+---------------------------------------------------------------------------
+-- damage / hit resolution
+---------------------------------------------------------------------------
+local function partClass(name)
+	if name == "Head" then
+		return "Head"
+	elseif name == "UpperTorso" or name == "LowerTorso" then
+		return name
+	elseif string.find(name, "Arm") or string.find(name, "Hand") then
+		return "Arm"
+	end
+	return "Leg"
+end
+
+local function reactionFor(tgt, partName, dmg)
+	if partClass(partName) == "Arm" then
+		return "React_Hit_Arm"
+	elseif dmg >= 32 or tgt.stamina < 25 then
+		return "React_Hit_Heavy"
+	end
+	return "React_Hit_Torso"
+end
+
+local function resolveMelee(att, tgt, partName, point)
+	att.hitSet[tgt] = true
+	local a = att.action
+	local dmg = Config.Sword.Damage[a.dir] * (Config.Sword.PartMultiplier[partClass(partName)] or 1)
+	if a.riposte then
+		dmg *= Config.Sword.RiposteMultiplier
+	end
+	if a.low then
+		dmg *= Config.Stamina.LowStaminaDamageMultiplier
+	end
+
+	local blocking = tgt.state == "Blocking"
+		and Geometry.facingAngle(tgt.hrp.CFrame, att.hrp.Position) <= Config.Block.CoverAngle
+	if blocking then
+		local since = now() - tgt.blockStart
+		a.stopped = true -- the blade is stopped by the block
+		if since <= Config.Block.PerfectWindow then
+			tgt.stamina = math.min(Config.Stamina.Max, tgt.stamina + Config.Block.PerfectBlockStaminaGain)
+			tgt.riposteUntil = now() + Config.Sword.RiposteWindow
+			react(att, "React_Hit_Arm")
+			toast(tgt, "Perfect block! Riposte!", Color3.fromRGB(255, 215, 90))
+			toast(att, "Parried!", Color3.fromRGB(255, 120, 90))
+			fx("Perfect", point)
+		else
+			spend(tgt, dmg * Config.Stamina.BlockCostMultiplier)
+			if tgt.stamina <= 0 then
+				tgt.humanoid:TakeDamage(dmg * Config.Block.GuardBreakDamageFraction)
+				react(tgt, "React_Stagger")
+				toast(tgt, "Guard broken!", Color3.fromRGB(255, 90, 70))
+				toast(att, "Guard break!", Color3.fromRGB(255, 215, 90))
+				fx("GuardBreak", point)
+			else
+				toast(att, "Blocked", Color3.fromRGB(200, 200, 200))
+				fx("Block", point)
+			end
+		end
+		return
+	end
+
+	tgt.humanoid:TakeDamage(dmg)
+	spend(tgt, Config.Stamina.PainCost)
+	toast(att, string.format("Hit  -%d", math.floor(dmg + 0.5)), Color3.fromRGB(255, 255, 255))
+	fx("Hit", point)
+	if tgt.humanoid.Health > 0 then
+		react(tgt, reactionFor(tgt, partName, dmg))
+	end
+end
+
+---------------------------------------------------------------------------
+-- per-frame pose, hurtboxes, blade sweeps
+---------------------------------------------------------------------------
+local function updatePose(c, dt, t)
+	local pose = c.anim:update(dt, t)
+	c.anim.rig:solve(pose)
+	local root = c.hrp.CFrame
+	table.clear(c.hurt)
+	for _, b in RigData.bones do
+		if b ~= "SwordHandle" and b ~= "BowHandle" then
+			local m = c.anim.rig.joints[b]
+			if m and m.Part1:IsA("BasePart") then
+				table.insert(c.hurt, { name = b, cf = c.anim.rig:partWorld(m.Part1, root), size = m.Part1.Size })
+			end
+		end
+	end
+end
+
+local function bladePoints(c)
+	local rig = c.anim.rig
+	local base = rig:pointWorld("BladeBase")
+	local tip = rig:pointWorld("BladeTip")
+	if not base or not tip then
+		return nil
+	end
+	local n = Config.Sword.HitSampleCount
+	local pts = table.create(n)
+	for i = 1, n do
+		pts[i] = base:Lerp(tip, (i - 1) / (n - 1))
+	end
+	return pts
+end
+
+local function sweep(att)
+	local cur = bladePoints(att)
+	if not cur then
+		return
+	end
+	local prev = att.prevBlade or cur
+	att.prevBlade = cur
+	if att.action.stopped then
+		return
+	end
+	for _, tgt in combatants do
+		if tgt ~= att and alive(tgt) and not att.hitSet[tgt]
+			and (tgt.hrp.Position - att.hrp.Position).Magnitude <= Config.Sword.MaxHitRange then
+			local best, bestT, bestPoint
+			for _, box in tgt.hurt do
+				for i = 1, #cur do
+					local t = Geometry.segmentBox(prev[i], cur[i], box.cf, box.size, 0.05)
+					if not t and i < #cur then
+						t = Geometry.segmentBox(cur[i], cur[i + 1], box.cf, box.size, 0.05)
+					end
+					if t and (not bestT or t < bestT) then
+						best, bestT, bestPoint = box.name, t, prev[i]:Lerp(cur[i], t)
+					end
+				end
+			end
+			if best then
+				local a = att.action
+				resolveMelee(att, tgt, best, bestPoint)
+				-- stop if the blade was blocked or the attacker got parried (action replaced)
+				if att.action ~= a or a.stopped then
+					return
+				end
+			end
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- arrows
+---------------------------------------------------------------------------
+local arrows = {}
+local arrowId = 0
+local ARROW_LEN = RigData.arrowLength
+
+local function stickArrow(pos, dir, hitPart, relPart, relCF)
+	local m = ArrowModel.new()
+	local nock = pos - dir * (ARROW_LEN - 0.3)
+	m:PivotTo(CFrame.lookAt(nock, nock + dir))
+	local primary = m.PrimaryPart or m:FindFirstChildWhichIsA("BasePart")
+	if relPart and relCF then
+		-- stuck in a character: weld in the animated part's frame
+		for _, p in m:GetDescendants() do
+			if p:IsA("BasePart") and p ~= primary then
+				local w = Instance.new("WeldConstraint")
+				w.Part0 = primary
+				w.Part1 = p
+				w.Parent = p
+			end
+		end
+		for _, p in m:GetDescendants() do
+			if p:IsA("BasePart") then
+				p.Anchored = false
+			end
+		end
+		local weld = Instance.new("Weld")
+		weld.Part0 = relPart
+		weld.Part1 = primary
+		weld.C0 = relCF * m:GetPivot():ToObjectSpace(primary.CFrame)
+		weld.Parent = primary
+		m.Parent = relPart.Parent
+	else
+		m.Parent = arrowFolder
+		if hitPart and not hitPart.Anchored then
+			for _, p in m:GetDescendants() do
+				if p:IsA("BasePart") then
+					p.Anchored = false
+					local w = Instance.new("WeldConstraint")
+					w.Part0 = hitPart
+					w.Part1 = p
+					w.Parent = p
+				end
+			end
+		end
+	end
+	Debris:AddItem(m, Config.Bow.StuckArrowLifetime)
+end
+
+function fireArrow(c, frac, aimPoint, holdTime)
+	c.anim.rig:solve(c.anim.out) -- ensure points reflect the current pose
+	local nock = c.anim.rig:pointWorld("RightFingers") or (c.hrp.Position + Vector3.new(0, 2, 0))
+	local rest = c.anim.rig:pointWorld("BowArrowRest") or (nock + c.hrp.CFrame.LookVector)
+	local dir = (rest - nock).Unit
+	if typeof(aimPoint) == "Vector3" then
+		local want = (aimPoint - nock)
+		if want.Magnitude > 1 then
+			want = want.Unit
+			local flat = Vector3.new(want.X, 0, want.Z)
+			if flat.Magnitude > 1e-3
+				and math.deg(math.acos(math.clamp(flat.Unit:Dot(c.hrp.CFrame.LookVector), -1, 1))) <= Config.Bow.MaxAimAngleFromFacing then
+				dir = want
+			end
+		end
+	end
+	local spread = Config.Bow.BaseSpreadDeg + Config.Bow.SpreadGrowthPerSecond * holdTime
+	if c.stamina < 20 then
+		spread += Config.Bow.LowStaminaSpreadDeg
+	end
+	dir = Geometry.spread(dir, math.min(spread, Config.Bow.MaxSpreadDeg), rng)
+	local speed = Config.Bow.FullDrawSpeed * (Config.Bow.MinDrawSpeedFraction + (1 - Config.Bow.MinDrawSpeedFraction) * frac)
+	arrowId += 1
+	local a = {
+		id = arrowId,
+		shooter = c,
+		pos = nock + dir * ARROW_LEN, -- simulate the tip
+		vel = dir * speed,
+		damage = Config.Bow.Damage * frac ^ 1.3,
+		t = 0,
+	}
+	arrows[arrowId] = a
+	Notify:FireAllClients("ArrowFired", arrowId, nock, a.vel, Config.Bow.Gravity)
+end
+
+local rayParams = RaycastParams.new()
+rayParams.FilterType = Enum.RaycastFilterType.Exclude
+
+local function stepArrows(dt)
+	local g = Vector3.new(0, -Config.Bow.Gravity, 0)
+	local exclude = { arrowFolder }
+	for m in combatants do
+		table.insert(exclude, m)
+	end
+	rayParams.FilterDescendantsInstances = exclude
+	for id, a in arrows do
+		a.t += dt
+		local newPos = a.pos + a.vel * dt + g * (0.5 * dt * dt)
+		local newVel = a.vel + g * dt
+		local dir = newVel.Unit
+		-- characters: posed hitboxes
+		local hitC, hitName, hitT, hitBox
+		for _, tgt in combatants do
+			if tgt ~= a.shooter and alive(tgt) and (tgt.hrp.Position - newPos).Magnitude < 20 then
+				for _, box in tgt.hurt do
+					local t = Geometry.segmentBox(a.pos, newPos, box.cf, box.size, 0.02)
+					if t and (not hitT or t < hitT) then
+						hitC, hitName, hitT, hitBox = tgt, box.name, t, box
+					end
+				end
+			end
+		end
+		-- world geometry
+		local res = workspace:Raycast(a.pos, newPos - a.pos, rayParams)
+		if res and hitT and (res.Position - a.pos).Magnitude < (newPos - a.pos).Magnitude * hitT then
+			hitC = nil
+		end
+		if hitC then
+			local p = a.pos:Lerp(newPos, hitT)
+			local mult = Config.Bow.PartMultiplier[partClass(hitName)] or 1
+			local dmg = a.damage * mult
+			hitC.humanoid:TakeDamage(dmg)
+			spend(hitC, Config.Stamina.PainCost)
+			toast(a.shooter, string.format("Arrow hit (%s)  -%d", hitName, math.floor(dmg + 0.5)), Color3.fromRGB(255, 255, 255))
+			fx("Hit", p)
+			if hitC.humanoid.Health > 0 then
+				react(hitC, partClass(hitName) == "Arm" and "React_Hit_Arm" or "React_Hit_Torso")
+			end
+			local part = hitC.anim.rig.joints[hitName] and hitC.anim.rig.joints[hitName].Part1
+			if part then
+				local nock = p - dir * (ARROW_LEN - 0.3)
+				local arrowCF = CFrame.lookAt(nock, nock + dir)
+				local rel = hitBox.cf:ToObjectSpace(arrowCF)
+				stickArrow(p, dir, nil, part, rel)
+			end
+			Notify:FireAllClients("ArrowEnd", id)
+			arrows[id] = nil
+		elseif res then
+			stickArrow(res.Position, dir, res.Instance)
+			fx("ArrowImpact", res.Position)
+			Notify:FireAllClients("ArrowEnd", id)
+			arrows[id] = nil
+		elseif a.t > Config.Bow.ArrowLifetime or newPos.Magnitude > 1e5 then
+			Notify:FireAllClients("ArrowEnd", id)
+			arrows[id] = nil
+		else
+			a.pos, a.vel = newPos, newVel
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- sparring partner AI
+---------------------------------------------------------------------------
+local AI_DIRS = { "HighRight", "HighLeft", "HorizontalRL", "HorizontalLR", "Thrust" }
+
+local function nearestEnemy(c)
+	local best, bd
+	for _, o in combatants do
+		if o ~= c and alive(o) and not o.static and not o.ai then
+			local d = (o.hrp.Position - c.hrp.Position).Magnitude
+			if d < 60 and (not bd or d < bd) then
+				best, bd = o, d
+			end
+		end
+	end
+	return best, bd
+end
+
+local function faceTowards(c, point, dt, maxRate)
+	local pos = c.hrp.Position
+	local to = Vector3.new(point.X - pos.X, 0, point.Z - pos.Z)
+	if to.Magnitude < 0.1 then
+		return
+	end
+	local cur = c.hrp.CFrame.LookVector
+	local curYaw = math.atan2(-cur.X, -cur.Z)
+	local want = math.atan2(-to.X, -to.Z)
+	local d = (want - curYaw + math.pi) % (2 * math.pi) - math.pi
+	local step = math.rad(maxRate) * dt
+	local yaw = curYaw + math.clamp(d, -step, step)
+	c.hrp.CFrame = CFrame.new(pos) * CFrame.Angles(0, yaw, 0)
+end
+
+local function aiTick(c, dt)
+	if not alive(c) then
+		return
+	end
+	local brain = c.ai
+	local t = now()
+	local enemy, dist = nearestEnemy(c)
+	if not enemy then
+		c.humanoid:Move(Vector3.zero)
+		if c.state == "Blocking" then
+			endBlock(c)
+		end
+		return
+	end
+	local committed = c.state == "Windup" or c.state == "Active"
+	faceTowards(c, enemy.hrp.Position, dt, committed and Config.Sword.TurnRateDuringAttack or 360)
+	if brain.mode == "Passive" then
+		c.humanoid:Move(Vector3.zero)
+		return
+	end
+
+	-- footwork
+	local to = enemy.hrp.Position - c.hrp.Position
+	local flat = Vector3.new(to.X, 0, to.Z)
+	local moveDir = Vector3.zero
+	if c.state == "Idle" or c.state == "Blocking" then
+		if dist > Config.AI.PreferredDistance + 1 then
+			moveDir = flat.Unit
+		elseif dist < Config.AI.PreferredDistance - 1.3 then
+			moveDir = -flat.Unit
+		else
+			-- circle a little
+			brain.strafe = brain.strafe or (rng:NextNumber() < 0.5 and 1 or -1)
+			if rng:NextNumber() < dt * 0.4 then
+				brain.strafe = -brain.strafe
+			end
+			moveDir = flat.Unit:Cross(Vector3.yAxis) * brain.strafe * 0.5
+		end
+	end
+	c.humanoid:Move(moveDir, false)
+
+	-- defence: react to the enemy's wind-up
+	local ea = enemy.action
+	if enemy.state == "Windup" and ea and brain.readAttack ~= ea.t0 then
+		brain.readAttack = ea.t0
+		if rng:NextNumber() < Config.AI.BlockChance then
+			local impactAt = ea.t0 + ea.impact
+			local delay
+			if rng:NextNumber() < Config.AI.PerfectBlockChance then
+				delay = math.max(0, impactAt - t - 0.18)
+			else
+				delay = rng:NextNumber(Config.AI.ReactionTime[1], Config.AI.ReactionTime[2])
+			end
+			brain.blockAt = t + delay
+			brain.blockFor = ea.t0
+		end
+	end
+	if brain.blockAt and t >= brain.blockAt then
+		brain.blockAt = nil
+		if c.state == "Windup" or c.state == "Idle" or c.state == "BlockRecover" or canCombo(c) then
+			startBlock(c)
+			brain.releaseBlock = nil
+		end
+	end
+	if c.state == "Blocking" then
+		local stillThreat = enemy.state == "Windup" or enemy.state == "Active"
+		if not stillThreat then
+			brain.releaseBlock = brain.releaseBlock or (t + rng:NextNumber(0.15, 0.4))
+			if t >= brain.releaseBlock then
+				endBlock(c)
+				brain.releaseBlock = nil
+			end
+		else
+			brain.releaseBlock = nil
+		end
+	end
+
+	-- offence
+	brain.nextAttack = brain.nextAttack or (t + 1.5)
+	local canAct = c.state == "Idle" or c.state == "BlockRecover" or canCombo(c)
+	if canAct and dist <= Config.AI.AttackRange and t >= brain.nextAttack and c.stamina > 25 then
+		local ripo = t < c.riposteUntil
+		startAttack(c, AI_DIRS[rng:NextInteger(1, #AI_DIRS)])
+		brain.nextAttack = t + rng:NextNumber(Config.AI.AttackCooldown[1], Config.AI.AttackCooldown[2]) * (ripo and 0.5 or 1)
+		if rng:NextNumber() < Config.AI.FeintChance and c.action then
+			brain.feintAt = t + c.action.active * rng:NextNumber(0.35, 0.8)
+		end
+	end
+	if brain.feintAt and t >= brain.feintAt then
+		brain.feintAt = nil
+		if c.state == "Windup" then
+			startBlock(c)
+			brain.releaseBlock = t + 0.35
+		end
+	end
+	-- riposte right after a perfect block
+	if t < c.riposteUntil and c.state == "Blocking" then
+		endBlock(c)
+		brain.nextAttack = t + 0.2
+	end
+end
+
+local dummies = {}
+
+local function spawnDummyAt(cf: CFrame, mode)
+	if not template then
+		return
+	end
+	local m = template:Clone()
+	m.Name = "Sparring Partner"
+	m:PivotTo(cf)
+	m.Parent = workspace
+	local hum = m:FindFirstChildOfClass("Humanoid")
+	hum.DisplayName = "Sparring Partner"
+	hum.AutoRotate = false
+	for _, p in m:GetDescendants() do
+		if p:IsA("BasePart") then
+			p:SetNetworkOwner(nil)
+		end
+	end
+	local c = register(m, { ai = { mode = mode or "Spar" } })
+	if not c then
+		m:Destroy()
+		return
+	end
+	dummies[m] = { cf = cf, mode = c.ai.mode }
+	m:SetAttribute("AIMode", c.ai.mode)
+	hum.Died:Connect(function()
+		task.delay(Config.AI.RespawnDelay, function()
+			local info = dummies[m]
+			dummies[m] = nil
+			m:Destroy()
+			if info then
+				spawnDummyAt(info.cf, info.mode) -- training partner comes back
+			end
+		end)
+	end)
+	return c
+end
+
+-- 12 studs in front of `nearCF`, facing it
+local function spawnDummy(nearCF: CFrame, mode)
+	local pos = nearCF.Position + nearCF.LookVector * 12
+	return spawnDummyAt(CFrame.lookAt(pos, Vector3.new(nearCF.X, pos.Y, nearCF.Z)), mode)
+end
+
+---------------------------------------------------------------------------
+-- players
+---------------------------------------------------------------------------
+local function onCharacter(player, char)
+	local hrp = char:WaitForChild("HumanoidRootPart", 10)
+	local hum = char:WaitForChild("Humanoid", 10)
+	if not hrp or not hum then
+		return
+	end
+	if not hasSword(char) then
+		warn("[Combat] " .. player.Name .. "'s character is not the combat rig (no SwordHandle).")
+		return
+	end
+	local animate = char:FindFirstChild("Animate")
+	if animate then
+		animate:Destroy()
+	end
+	task.defer(function()
+		local a = char:FindFirstChild("Animate")
+		if a then
+			a:Destroy()
+		end
+	end)
+	register(char, { player = player })
+end
+
+Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(function(char)
+		onCharacter(player, char)
+	end)
+end)
+for _, player in Players:GetPlayers() do
+	player.CharacterAdded:Connect(function(char)
+		onCharacter(player, char)
+	end)
+	if player.Character and not hasSword(player.Character) and template then
+		player:LoadCharacter()
+	elseif player.Character then
+		onCharacter(player, player.Character)
+	end
+end
+
+-- any combat rig standing in the world becomes a static training mannequin
+for _, m in workspace:GetDescendants() do
+	if isCombatRig(m) and not Players:GetPlayerFromCharacter(m) and not combatants[m] then
+		prepareRig(m, true) -- unanchor the limbs so Motor6Ds can move them, pin the root
+		local c = register(m, { static = true })
+		if c then
+			c.humanoid.AutoRotate = false
+		end
+	end
+end
+
+---------------------------------------------------------------------------
+-- requests
+---------------------------------------------------------------------------
+local requestRate = {}
+Request.OnServerEvent:Connect(function(player, action, arg)
+	local r = requestRate[player] or { t = 0, n = 0 }
+	requestRate[player] = r
+	local t = os.clock()
+	if t - r.t > 1 then
+		r.t, r.n = t, 0
+	end
+	r.n += 1
+	if r.n > 40 or type(action) ~= "string" then
+		return
+	end
+
+	if action == "SpawnDummy" then
+		local char = player.Character
+		if char and char:FindFirstChild("HumanoidRootPart") then
+			local count = 0
+			for _ in dummies do
+				count += 1
+			end
+			if count >= 4 then
+				for m in dummies do
+					dummies[m] = nil
+					m:Destroy()
+					break
+				end
+			end
+			spawnDummy(char.HumanoidRootPart.CFrame, type(arg) == "string" and arg or "Spar")
+		end
+		return
+	elseif action == "DummyMode" then
+		local newMode
+		for m, info in dummies do
+			local c = combatants[m]
+			if c and c.ai then
+				c.ai.mode = c.ai.mode == "Spar" and "Passive" or "Spar"
+				info.mode = c.ai.mode
+				m:SetAttribute("AIMode", c.ai.mode)
+				newMode = c.ai.mode
+				if c.state == "Blocking" then
+					endBlock(c)
+				end
+			end
+		end
+		if newMode then
+			Notify:FireClient(player, "Toast", "Sparring partner: " .. newMode, Color3.fromRGB(180, 220, 255))
+		end
+		return
+	end
+
+	local c = player.Character and combatants[player.Character]
+	if not c then
+		return
+	end
+	if action == "Attack" and type(arg) == "string" then
+		startAttack(c, arg)
+	elseif action == "BlockStart" then
+		startBlock(c)
+	elseif action == "BlockEnd" then
+		endBlock(c)
+	elseif action == "Weapon" and type(arg) == "string" then
+		switchWeapon(c, arg)
+	elseif action == "BowPress" then
+		bowPress(c)
+	elseif action == "BowRelease" then
+		bowRelease(c, typeof(arg) == "Vector3" and arg or nil)
+	elseif action == "BowCancel" then
+		bowCancel(c)
+	elseif action == "Sprint" then
+		c.sprinting = arg == true
+	end
+end)
+
+Players.PlayerRemoving:Connect(function(p)
+	requestRate[p] = nil
+end)
+
+---------------------------------------------------------------------------
+-- main loop
+---------------------------------------------------------------------------
+local SPEED = Config.WalkSpeed
+
+local function tickState(c, dt, t)
+	local a = c.action
+	local e = a and (t - a.t0) or 0
+	if a then
+		if a.kind == "Attack" then
+			if e < a.active then
+				c.state = "Windup"
+			elseif e < a.recovery then
+				c.state = "Active"
+			elseif e < a.finish then
+				c.state = "Recovery"
+			else
+				c.action = nil
+				c.state = "Idle"
+				clearAct(c)
+			end
+		elseif a.kind == "BlockRecover" or a.kind == "Switch" or a.kind == "Lower" or a.kind == "Release" then
+			if e >= a.finish then
+				c.action = nil
+				c.state = "Idle"
+				clearAct(c)
+			end
+		elseif a.kind == "React" then
+			if e < a.recover then
+				c.state = "Staggered"
+			elseif e < a.finish then
+				c.state = "Recovering"
+			else
+				c.action = nil
+				c.state = "Idle"
+				clearAct(c)
+			end
+		elseif a.kind == "Nock" then
+			if e >= a.finish then
+				c.nocked = true
+				c.action = nil
+				if c.wantDraw then
+					startDraw(c)
+				else
+					c.state = "BowReady"
+				end
+			end
+		elseif a.kind == "Draw" then
+			if c.state == "BowDraw" and e >= a.full then
+				c.state = "BowAim"
+				c.aimStart = t
+			end
+			if c.state == "BowAim" then
+				c.stamina = math.max(0, c.stamina - Config.Stamina.BowHoldPerSecond * dt)
+				c.lastSpend = t
+				if c.stamina <= 0 then
+					toast(c, "Arms give out!", Color3.fromRGB(230, 170, 60))
+					bowRelease(c, nil)
+				end
+			end
+		end
+	end
+
+	-- stamina regen
+	local st = c.state
+	if st ~= "Dead" and t - c.lastSpend > Config.Stamina.RegenDelay then
+		local k = 1
+		if st == "Blocking" then
+			k = Config.Stamina.RegenMultiplierBlocking
+		elseif st == "BowDraw" or st == "BowAim" or st == "BowReady" then
+			k = Config.Stamina.RegenMultiplierDrawing
+		end
+		c.stamina = math.min(Config.Stamina.Max, c.stamina + Config.Stamina.RegenPerSecond * k * dt)
+	end
+
+	-- movement speed per state
+	local hum = c.humanoid
+	if hum and not c.static then
+		local ws
+		if st == "Idle" or st == "Switching" or st == "BowRelease" or st == "BowLower" then
+			ws = c.weapon == "Bow" and SPEED.Bow or SPEED.Guard
+			if c.sprinting and st == "Idle" and c.stamina > 1 then
+				ws = SPEED.Sprint
+				c.stamina = math.max(0, c.stamina - Config.Stamina.SprintPerSecond * dt)
+				c.lastSpend = t
+			end
+		elseif st == "Blocking" or st == "BlockRecover" then
+			ws = SPEED.Blocking
+		elseif st == "Windup" then
+			ws = SPEED.Windup
+		elseif st == "Active" then
+			ws = SPEED.Active
+		elseif st == "Recovery" then
+			ws = SPEED.Recovery
+		elseif st == "Staggered" or st == "Recovering" then
+			ws = SPEED.Staggered
+		else
+			ws = SPEED.BowDrawing
+		end
+		hum.WalkSpeed = ws
+		hum.JumpHeight = (st == "Idle") and 4 or 0
+	end
+
+	-- replicate state (throttled)
+	if t - c.lastAttr > 0.08 then
+		c.lastAttr = t
+		c.model:SetAttribute("Stamina", math.floor(c.stamina * 10 + 0.5) / 10)
+		c.model:SetAttribute("State", c.state)
+	end
+end
+
+RunService.Heartbeat:Connect(function(dt)
+	local t = now()
+	for m, c in combatants do
+		if not m.Parent then
+			combatants[m] = nil
+		elseif c.state ~= "Dead" then
+			tickState(c, dt, t)
+			updatePose(c, dt, t)
+		end
+	end
+	for _, c in combatants do
+		if c.ai then
+			aiTick(c, dt)
+		end
+		if c.state == "Active" and c.action and c.action.kind == "Attack" then
+			sweep(c)
+		elseif c.prevBlade then
+			c.prevBlade = nil
+		end
+	end
+	stepArrows(dt)
+end)
+
+print("[Combat] Server ready.")
+]]></ProtectedString></Properties></Item></roblox>
