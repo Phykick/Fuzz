@@ -23,9 +23,12 @@ def bundle(test_file, clips):
     out.append("""
 function require(m) return m.__value end
 local AnimFolder = { FindFirstChild = function(_, n) local v = MODS["Anim_" .. n]; return v and { __value = v } end }
-script = { Parent = { RigData = { __value = MODS.RigData }, Clips = { __value = MODS.Clips }, AnimData = AnimFolder } }
+script = { Parent = { RigData = { __value = MODS.RigData }, Clips = { __value = MODS.Clips }, AnimData = AnimFolder,
+	PoseDriver = { __value = nil } } }
 """)
     out.append("local PoseDriver = " + chunk(os.path.join(COMBAT, "PoseDriver.luau")))
+    out.append("script.Parent.PoseDriver.__value = PoseDriver")
+    out.append("local RigRepair = " + chunk(os.path.join(COMBAT, "RigRepair.luau")))
     out.append("MODS.Geometry = " + chunk(os.path.join(COMBAT, "Geometry.luau")).replace("Vector3.one", "Vector3.new(1, 1, 1)"))
     lines = ["local REF = {}"]
     for k, bones in ref.items():
@@ -39,7 +42,8 @@ if __name__ == "__main__":
     attacks = ["Sword_Attack_" + d for d in ("HighRight", "HighLeft", "HorizontalRL", "HorizontalLR", "Thrust")]
     code = 0
     for test, clips in (("posedriver_test.luau", ["Sword_Attack_HighRight", "Bow_FullDraw", "Sword_Idle"]),
-                        ("range_test.luau", attacks + ["Sword_Idle"])):
+                        ("range_test.luau", attacks + ["Sword_Idle"]),
+                        ("rigrepair_test.luau", ["Sword_Attack_HighRight", "Bow_FullDraw"])):
         path = os.path.join(ROOT, "tests", "_bundle_" + test)
         open(path, "w").write(bundle(test, clips))
         r = subprocess.run([LUAU, path], capture_output=True, text=True)

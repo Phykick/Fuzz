@@ -167,6 +167,18 @@ def main():
     for n, (bone, p) in points.items():
         L.append('\t\t%s = { bone = "%s", pos = %s },' % (n, bone, vec_lua(p)))
     L.append("\t},")
+    # hurtboxes: rest-pose bounding box of each body mesh (authoring space, Roblox axes)
+    body = R.build_body(rig_ob)
+    L.append("\thurtboxes = {")
+    for bone, ob in body.items():
+        vs = [ob.matrix_world @ vv.co for vv in ob.data.vertices]
+        lo = Vector([min(p[i] for p in vs) for i in range(3)])
+        hi = Vector([max(p[i] for p in vs) for i in range(3)])
+        c = (lo + hi) / 2
+        sz = hi - lo
+        L.append("\t\t%s = { center = %s, size = Vector3.new(%s, %s, %s) }," % (
+            bone, vec_lua(c), fmt(sz.x), fmt(sz.z), fmt(sz.y)))
+    L.append("\t},")
     L.append("\tstudsPerMetre = %s," % fmt(meshes.M))
     L.append("\tarrowLength = %s," % fmt(meshes.ARROW["length"] + 0.3))
     L.append("}")

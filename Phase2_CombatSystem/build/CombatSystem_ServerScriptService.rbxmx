@@ -1,4 +1,4 @@
-<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX0000002B"><Properties><string name="Name">CombatServer</string><ProtectedString name="Source"><![CDATA[--!nonstrict
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4"><Item class="Script" referent="RBX0000002C"><Properties><string name="Name">CombatServer</string><ProtectedString name="Source"><![CDATA[--!nonstrict
 --[[
 	CombatServer: authoritative melee + archery combat (KCD-inspired).
 
@@ -27,6 +27,7 @@ local CharacterAnimator = require(Combat.CharacterAnimator)
 local Geometry = require(Combat.Geometry)
 local ArrowModel = require(Combat.ArrowModel)
 local RigData = require(Combat.RigData)
+local RigRepair = require(Combat.RigRepair)
 
 local rng = Random.new()
 
@@ -112,6 +113,14 @@ local function prepareRig(model: Model, anchored: boolean?)
 	hrp.CanCollide = true
 	hrp.Transparency = 1
 	hrp.Anchored = anchored == true
+	-- make sure the rig has drivable joints (builds Motor6Ds if the import has none)
+	local ok, how = RigRepair.ensure(model)
+	if ok then
+		print("[Combat] Rig '" .. model.Name .. "': " .. how)
+	else
+		warn("[Combat] Rig '" .. model.Name .. "' cannot be animated: " .. how)
+		model:SetAttribute("CombatError", how)
+	end
 	-- HipHeight so the authored floor (feet planted in every clip) is the real floor
 	local rig = PoseDriver.bind(model)
 	if rig then
@@ -127,6 +136,7 @@ local template = findTemplate()
 if not template then
 	warn("[Combat] No combat rig found. Import R15_CombatRig_Armed.fbx (it must contain a Humanoid, HumanoidRootPart and a SwordHandle part) into Workspace, then press Play again.")
 else
+	print("[Combat] Template structure: " .. PoseDriver.describe(template))
 	local master = template:Clone()
 	master.Name = "CombatRigTemplate"
 	prepareRig(master)
@@ -168,16 +178,10 @@ end
 
 local function setWeaponVisibility(c)
 	for name, weapon in { SwordHandle = "Sword", BowHandle = "Bow" } do
-		local p = c.model:FindFirstChild(name, true) or c.model:FindFirstChild(name .. "_Geo", true)
-		if p then
-			local t = (c.weapon == weapon) and 0 or 1
-			for _, d in p:GetDescendants() do
-				if d:IsA("BasePart") or d:IsA("Decal") then
-					d.Transparency = t
-				end
-			end
-			if p:IsA("BasePart") then
-				p.Transparency = t
+		local t = (c.weapon == weapon) and 0 or 1
+		for _, d in c.model:GetDescendants() do
+			if d:IsA("BasePart") and PoseDriver.boneName(d.Name) == name then
+				d.Transparency = t
 			end
 		end
 	end
@@ -206,7 +210,15 @@ local function register(model: Model, opts)
 	local anim, err = CharacterAnimator.new(model)
 	if not anim then
 		warn("[Combat] Cannot drive " .. model:GetFullName() .. ": " .. tostring(err))
+		model:SetAttribute("CombatError", tostring(err))
 		return nil
+	end
+	local kinds = {}
+	for k, n in anim.rig.kinds do
+		table.insert(kinds, n .. " " .. k)
+	end
+	if opts and opts.player then
+		print("[Combat] " .. model.Name .. " rig bound (" .. table.concat(kinds, ", ") .. ")")
 	end
 	local hum = model:FindFirstChildOfClass("Humanoid")
 	local c = {
@@ -522,16 +534,7 @@ end
 local function updatePose(c, dt, t)
 	local pose = c.anim:update(dt, t)
 	c.anim.rig:solve(pose)
-	local root = c.hrp.CFrame
-	table.clear(c.hurt)
-	for _, b in RigData.bones do
-		if b ~= "SwordHandle" and b ~= "BowHandle" then
-			local m = c.anim.rig.joints[b]
-			if m and m.Part1:IsA("BasePart") then
-				table.insert(c.hurt, { name = b, cf = c.anim.rig:partWorld(m.Part1, root), size = m.Part1.Size })
-			end
-		end
-	end
+	c.anim.rig:hurtboxes(c.hrp.CFrame, c.hurt)
 end
 
 local function bladePoints(c)
@@ -687,13 +690,13 @@ local function stepArrows(dt)
 		local newVel = a.vel + g * dt
 		local dir = newVel.Unit
 		-- characters: posed hitboxes
-		local hitC, hitName, hitT, hitBox
+		local hitC, hitName, hitT
 		for _, tgt in combatants do
 			if tgt ~= a.shooter and alive(tgt) and (tgt.hrp.Position - newPos).Magnitude < 20 then
 				for _, box in tgt.hurt do
 					local t = Geometry.segmentBox(a.pos, newPos, box.cf, box.size, 0.02)
 					if t and (not hitT or t < hitT) then
-						hitC, hitName, hitT, hitBox = tgt, box.name, t, box
+						hitC, hitName, hitT = tgt, box.name, t
 					end
 				end
 			end
@@ -714,12 +717,12 @@ local function stepArrows(dt)
 			if hitC.humanoid.Health > 0 then
 				react(hitC, partClass(hitName) == "Arm" and "React_Hit_Arm" or "React_Hit_Torso")
 			end
-			local part = hitC.anim.rig.joints[hitName] and hitC.anim.rig.joints[hitName].Part1
-			if part then
+			-- stick into the body part (only possible when limbs are real moving parts)
+			local part = hitC.anim.rig:movingPart(hitName)
+			local frame = hitC.anim.rig:boneWorld(hitName)
+			if part and frame then
 				local nock = p - dir * (ARROW_LEN - 0.3)
-				local arrowCF = CFrame.lookAt(nock, nock + dir)
-				local rel = hitBox.cf:ToObjectSpace(arrowCF)
-				stickArrow(p, dir, nil, part, rel)
+				stickArrow(p, dir, nil, part, frame:ToObjectSpace(CFrame.lookAt(nock, nock + dir)))
 			end
 			Notify:FireAllClients("ArrowEnd", id)
 			arrows[id] = nil

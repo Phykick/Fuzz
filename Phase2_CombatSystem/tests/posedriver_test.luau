@@ -12,13 +12,14 @@ local function rnd() seed = (seed * 1103515245 + 12345) % 2147483648; return see
 local function rrot() return CFrame.Angles(rnd() * 6.28, rnd() * 6.28, rnd() * 6.28) end
 
 local HRP_CF = CFrame.new(10, 3, -4) * CFrame.Angles(0, 0.7, 0)
-local hrp = { Name = "HumanoidRootPart", CFrame = HRP_CF }
+local function IsA(self, c) return c == self.__class or (c == "BasePart" and self.__class == "Part") or (c == "Attachment" and self.__class == "Bone") end
+local hrp = { Name = "HumanoidRootPart", CFrame = HRP_CF, __class = "Part", IsA = IsA }
 local parts = { HumanoidRootPart = hrp }
 local restRel = { [hrp] = CFrame.identity }
 local motors = {}
 for _, b in RigData.bones do
 	local piv = toRig(RigData.pivot[b])
-	local part = { Name = b }
+	local part = { Name = b, __class = "Part", IsA = IsA }
 	parts[b] = part
 	restRel[part] = CFrame.new(piv + Vector3.new(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5)) * rrot()
 end
@@ -27,8 +28,7 @@ for _, b in RigData.bones do
 	local p1 = parts[b]
 	local J = CFrame.new(toRig(RigData.pivot[b])) * rrot()
 	local m = { Part0 = p0, Part1 = p1, C0 = restRel[p0]:Inverse() * J, C1 = restRel[p1]:Inverse() * J,
-		Transform = CFrame.identity, Parent = true }
-	function m:IsA(c) return c == "Motor6D" end
+		Transform = CFrame.identity, Parent = true, __class = "Motor6D", IsA = IsA }
 	table.insert(motors, m)
 end
 local model = {
@@ -67,10 +67,50 @@ for key, bones in REF do
 	if not bones._BladeTip then continue end
 	local tipServer = rig:pointWorld("BladeTip", HRP_CF)
 	worst = math.max(worst, check(key .. " BladeTip", tipServer, HRP_CF * toRig(bones._BladeTip), 2e-3))
-	local sh = world[parts.SwordHandle] * rig.points.BladeTip.offset
+	local sh = world[parts.SwordHandle] * rig.points.BladeTip.offset -- engine: part frame * offset
 	check(key .. " BladeTip engine==server", sh, tipServer, 1e-4)
 end
-print(("posedriver: worst joint error %.6f studs, %d failures"):format(worst, fails))
+print(("posedriver[Motor6D]: worst joint error %.6f studs, %d failures"):format(worst, fails))
+
+-- ---- skinned rig: Bones inside the root part, random bone rolls, no Motor6Ds
+local broot = { Name = "HumanoidRootPart", CFrame = HRP_CF, __class = "Part", IsA = IsA }
+local bonesByName, blist = {}, {}
+local function mkBone(name, parent, worldRest)   -- worldRest in HRP space
+	local parentRest = parent == broot and CFrame.identity or parent.__rest
+	local b = { Name = name, __class = "Bone", IsA = IsA, Parent = parent, Transform = CFrame.identity,
+		CFrame = parentRest:Inverse() * worldRest, __rest = worldRest }
+	bonesByName[name] = b
+	table.insert(blist, b)
+	return b
+end
+local rootB = mkBone("Root", broot, CFrame.new(toRig(Vector3.new(0, 0, 0))) * rrot())
+local hrn = mkBone("HumanoidRootNode", rootB, CFrame.new(toRig(RigData.pivot.LowerTorso)) * rrot())
+for _, b in RigData.bones do
+	local pname = RigData.parent[b]
+	local parent = pname == "HumanoidRootPart" and hrn or bonesByName[pname]
+	mkBone(b, parent, CFrame.new(toRig(RigData.pivot[b])) * rrot())
+end
+local bmodel = {
+	FindFirstChild = function(_, n) return n == "HumanoidRootPart" and broot or nil end,
+	GetDescendants = function() return blist end,
+}
+local brig = assert(PoseDriver.bind(bmodel))
+local bworst = 0
+for key, bones in REF do
+	local clipName, frame = key:match("^(.-)@(%d+)$")
+	PoseDriver.sample(PoseDriver.getClip(clipName), tonumber(frame) / 30, false, pose)
+	brig:apply(pose)
+	local world = {}
+	local function W(b)
+		if b == broot then return HRP_CF end
+		if not world[b] then world[b] = W(b.Parent) * b.CFrame * b.Transform end
+		return world[b]
+	end
+	for _, name in RigData.bones do
+		bworst = math.max(bworst, check("bone " .. key .. " " .. name, W(bonesByName[name]).Position, HRP_CF * toRig(bones[name]), 1e-3))
+	end
+end
+print(("posedriver[Bone]: worst joint error %.6f studs, %d failures"):format(bworst, fails))
 -- loop sampling / blend sanity
 local idle = PoseDriver.getClip("Sword_Idle")
 local a = PoseDriver.sample(idle, 0, true, PoseDriver.newPose())

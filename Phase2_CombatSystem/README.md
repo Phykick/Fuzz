@@ -124,8 +124,13 @@ Edit it in Studio and press Play.
 
 ## What's verified, and what isn't
 
+- **Works with how Studio imported your rig.** The pose driver handles Motor6D rigs, AnimationConstraint rigs and
+  skinned rigs (Bones). If the parts arrived with only welds and no joints, `RigRepair` builds the Motor6Ds at the
+  correct pivots. On Play, the Output window prints `[Combat] Template structure: …` and
+  `[Combat] Rig '…': …` so you can see which path was used.
 - **Verified offline** (`python3 tests/run_tests.py <path-to-luau>`, using the stand-alone Luau runtime):
-  - Pose math on a deliberately rotated, scaled rig with random joint frames. Worst joint error: 0.0003 studs.
+  - Pose math on a deliberately rotated, scaled Motor6D rig with random joint frames, on a skinned Bone rig, and on a
+    weld-only rig repaired by `RigRepair`. Worst joint error: 0.0003 studs.
   - Server-side blade points match the rendered engine path.
   - Attack reach tables.
   - All scripts compile.

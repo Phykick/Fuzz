@@ -43,22 +43,14 @@ end
 local tracked = {} -- [Model] = { anim, arrow, beams }
 
 local function setupBowString(entry)
-	local rig = entry.anim.rig
-	local up, low = rig.points.BowUpperNock, rig.points.BowLowerNock
-	if not up or not low then
-		return
-	end
-	local bow = up.part
-	local function att(name, pos)
-		local a = bow:FindFirstChild(name) or Instance.new("Attachment")
+	-- world-space attachments updated every frame: works for Motor6D and skinned rigs alike
+	local function att(name)
+		local a = Instance.new("Attachment")
 		a.Name = name
-		a.Position = pos
-		a.Parent = bow
+		a.Parent = workspace.Terrain
 		return a
 	end
-	local top = att("StringTop", up.offset)
-	local bottom = att("StringBottom", low.offset)
-	local mid = att("StringMid", rig.points.BowStringRest and rig.points.BowStringRest.offset or up.offset:Lerp(low.offset, 0.5))
+	local top, mid, bottom = att("BowStringTop"), att("BowStringMid"), att("BowStringBottom")
 	local function beam(a0, a1)
 		local b = Instance.new("Beam")
 		b.Attachment0 = a0
@@ -69,11 +61,11 @@ local function setupBowString(entry)
 		b.Color = ColorSequence.new(Color3.fromRGB(214, 200, 166))
 		b.Transparency = NumberSequence.new(0)
 		b.LightInfluence = 1
-		b.Parent = bow
+		b.Parent = top
 		return b
 	end
 	entry.beams = { beam(top, mid), beam(mid, bottom) }
-	entry.mid = mid
+	entry.stringAtt = { top = top, mid = mid, bottom = bottom }
 end
 
 local function track(model)
@@ -94,6 +86,11 @@ local function untrack(model)
 	if e then
 		if e.arrow then
 			e.arrow:Destroy()
+		end
+		if e.stringAtt then
+			for _, a in e.stringAtt do
+				a:Destroy()
+			end
 		end
 		tracked[model] = nil
 	end
@@ -126,12 +123,14 @@ local function updateBowVisuals(model, entry)
 	end
 	local props = isBow and anim:bowProps() or nil
 	local fingers = rig:pointWorld("RightFingers")
-	if entry.mid then
+	local sa = entry.stringAtt
+	if sa and isBow then
+		local top, bottom = rig:pointWorld("BowUpperNock"), rig:pointWorld("BowLowerNock")
 		local restPt = rig:pointWorld("BowStringRest")
-		if props and props.held and fingers then
-			entry.mid.WorldPosition = fingers
-		elseif restPt then
-			entry.mid.WorldPosition = restPt
+		if top and bottom and restPt then
+			sa.top.WorldPosition = top
+			sa.bottom.WorldPosition = bottom
+			sa.mid.WorldPosition = (props and props.held and fingers) or restPt
 		end
 	end
 	if props and props.arrow > 0 and fingers then
@@ -431,8 +430,37 @@ local function classifyFlick(v: Vector2)
 	return "Thrust"
 end
 
+local errorLabel = Instance.new("TextLabel")
+errorLabel.Name = "CombatError"
+errorLabel.AnchorPoint = Vector2.new(0.5, 0)
+errorLabel.Position = UDim2.new(0.5, 0, 0, 60)
+errorLabel.Size = UDim2.fromOffset(760, 60)
+errorLabel.BackgroundColor3 = Color3.fromRGB(60, 10, 10)
+errorLabel.BackgroundTransparency = 0.2
+errorLabel.TextColor3 = Color3.new(1, 1, 1)
+errorLabel.TextWrapped = true
+errorLabel.Font = Enum.Font.Gotham
+errorLabel.TextSize = 14
+errorLabel.Visible = false
+errorLabel.Parent = gui.Parent:FindFirstChild("CombatErrorGui") or (function()
+	local g = Instance.new("ScreenGui")
+	g.Name = "CombatErrorGui"
+	g.ResetOnSpawn = false
+	g.Parent = player:WaitForChild("PlayerGui")
+	return g
+end)()
+
 RunService:BindToRenderStep("CombatCamera", Enum.RenderPriority.Camera.Value + 1, function(dt)
+	local pc = player.Character
+	local err = pc and pc:GetAttribute("CombatError")
+	errorLabel.Visible = err ~= nil
+	if err then
+		errorLabel.Text = "[Combat] Your character can't be animated: " .. string.sub(tostring(err), 1, 300)
+	end
 	local char = myChar()
+	if char and not tracked[char] then
+		char = nil -- not bound (yet): keep the default camera
+	end
 	if not char then
 		-- not (yet) the combat rig: leave Roblox's default camera and mouse alone
 		if camera.CameraType == Enum.CameraType.Scriptable then

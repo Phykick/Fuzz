@@ -184,7 +184,15 @@ end
 
 ----------------------------------------------------------------------------
 -- rig binding
+--
+-- Studio's importer can produce three kinds of joints. All are driven the
+-- same way:  frame(moved) = frame(parent) * c0 * Transform * c1^-1
+--   Motor6D             parent = Part0, moved = Part1, c0/c1 = C0/C1
+--   AnimationConstraint parent = Attachment0's part, moved = Attachment1's part
+--   Bone (skinned rig)  parent = Bone.Parent, moved = the Bone, c0 = Bone.CFrame
 ----------------------------------------------------------------------------
+local REQUIRED = { "LowerTorso", "UpperTorso", "Head", "LeftUpperArm", "RightUpperArm", "LeftHand", "RightHand" }
+
 local function basis(a: Vector3, b: Vector3): CFrame
 	local x = a.Unit
 	local z = x:Cross(b).Unit
@@ -197,38 +205,114 @@ function PoseDriver.boneName(name: string): string
 	return (string.gsub(name, "_Geo$", ""))
 end
 
+-- Human-readable summary of a model's joint structure (for error reports).
+function PoseDriver.describe(model: Model): string
+	local counts, bones, motors, parts = {}, {}, {}, {}
+	for _, d in model:GetDescendants() do
+		counts[d.ClassName] = (counts[d.ClassName] or 0) + 1
+		if d:IsA("Bone") and #bones < 30 then
+			table.insert(bones, d.Name)
+		elseif (d:IsA("Motor6D") or d:IsA("Weld") or d:IsA("WeldConstraint")) and #motors < 20 then
+			local p0 = d.Part0 and d.Part0.Name or "nil"
+			local p1 = d.Part1 and d.Part1.Name or "nil"
+			table.insert(motors, d.ClassName .. "(" .. p0 .. "->" .. p1 .. ")")
+		elseif d:IsA("BasePart") and #parts < 30 then
+			table.insert(parts, d.Name)
+		end
+	end
+	local c = {}
+	for k, v in counts do
+		if v > 0 and (k == "Motor6D" or k == "Bone" or k == "AnimationConstraint" or k == "MeshPart" or k == "Part"
+			or k == "Weld" or k == "WeldConstraint" or k == "Humanoid") then
+			table.insert(c, k .. "=" .. v)
+		end
+	end
+	return "classes{" .. table.concat(c, ", ") .. "} parts{" .. table.concat(parts, ", ") .. "} bones{"
+		.. table.concat(bones, ", ") .. "} joints{" .. table.concat(motors, ", ") .. "}"
+end
+
 function PoseDriver.bind(model: Model)
 	local hrp = model:FindFirstChild("HumanoidRootPart")
 	if not hrp then
 		return nil, "no HumanoidRootPart"
 	end
-	local joints = {}
+	local motors, anims, bones = {}, {}, {}
 	for _, d in model:GetDescendants() do
-		if d:IsA("Motor6D") and d.Part1 then
-			local name = PoseDriver.boneName(d.Part1.Name)
-			if BONE_INDEX[name] then
-				joints[name] = d
+		if d:IsA("Motor6D") and d.Part0 and d.Part1 then
+			local n = PoseDriver.boneName(d.Part1.Name)
+			if BONE_INDEX[n] and not motors[n] then
+				motors[n] = d
+			end
+		elseif d:IsA("AnimationConstraint") and d.Attachment0 and d.Attachment1
+			and d.Attachment0.Parent and d.Attachment1.Parent then
+			local n = PoseDriver.boneName(d.Attachment1.Parent.Name)
+			if BONE_INDEX[n] and not anims[n] then
+				anims[n] = d
+			end
+		elseif d:IsA("Bone") then
+			local n = PoseDriver.boneName(d.Name)
+			if BONE_INDEX[n] and not bones[n] then
+				bones[n] = d
 			end
 		end
 	end
-	for _, b in { "LowerTorso", "UpperTorso", "Head", "RightUpperArm", "LeftUpperArm" } do
-		if not joints[b] then
-			return nil, "missing joint for " .. b
+
+	-- one node per bone: Motor6D > AnimationConstraint > Bone
+	local nodes, byMoved = {}, {}
+	for _, b in BONES do
+		local node
+		if motors[b] then
+			local m = motors[b]
+			node = { kind = "Motor6D", obj = m, parent = m.Part0, moved = m.Part1, c0 = m.C0, c1 = m.C1 }
+		elseif anims[b] then
+			local a = anims[b]
+			node = { kind = "AnimationConstraint", obj = a, parent = a.Attachment0.Parent, moved = a.Attachment1.Parent,
+				c0 = a.Attachment0.CFrame, c1 = a.Attachment1.CFrame }
+		elseif bones[b] then
+			local bn = bones[b]
+			node = { kind = "Bone", obj = bn, parent = bn.Parent, moved = bn, c0 = bn.CFrame, c1 = CFrame.identity }
+		end
+		if node then
+			node.bone = b
+			nodes[b] = node
+			byMoved[node.moved] = node
 		end
 	end
-
-	-- rest-pose part frames relative to the HumanoidRootPart, from the joint chain
-	local restRel = { [hrp] = CFrame.identity }
-	local pivot = {}
-	for _, b in BONES do
-		local m = joints[b]
-		if m then
-			local p0 = m.Part0
-			local r0 = restRel[p0] or hrp.CFrame:ToObjectSpace(p0.CFrame)
-			restRel[p0] = r0
-			restRel[m.Part1] = r0 * m.C0 * m.C1:Inverse()
-			pivot[b] = (r0 * m.C0).Position
+	local missing = {}
+	for _, b in REQUIRED do
+		if not nodes[b] then
+			table.insert(missing, b)
 		end
+	end
+	if #missing > 0 then
+		return nil, "no Motor6D / AnimationConstraint / Bone for " .. table.concat(missing, ", ")
+			.. ". Rig structure: " .. PoseDriver.describe(model)
+	end
+
+	-- rest frames relative to the HumanoidRootPart
+	local restCache = { [hrp] = CFrame.identity }
+	local function restOf(inst)
+		local r = restCache[inst]
+		if r then
+			return r
+		end
+		local node = byMoved[inst]
+		if node then
+			r = restOf(node.parent) * node.c0 * node.c1:Inverse()
+		elseif inst:IsA("BasePart") then
+			r = hrp.CFrame:ToObjectSpace(inst.CFrame)
+		elseif inst:IsA("Attachment") then -- Bones are Attachments
+			r = restOf(inst.Parent) * inst.CFrame
+		else
+			r = CFrame.identity
+		end
+		restCache[inst] = r
+		return r
+	end
+	local restFrame, pivot = {}, {}
+	for b, node in nodes do
+		restFrame[b] = restOf(node.moved)
+		pivot[b] = (restOf(node.parent) * node.c0).Position
 	end
 
 	-- authoring space -> this rig: rotation G and scale s from shoulder/neck pivots
@@ -243,28 +327,47 @@ function PoseDriver.bind(model: Model)
 	local self = setmetatable({
 		model = model,
 		hrp = hrp,
-		joints = joints,
-		restRel = restRel,
+		nodes = nodes,
+		byMoved = byMoved,
+		restOf = restOf,
+		restFrame = restFrame,
 		pivot = pivot,
 		G = G,
 		Ginv = G:Inverse(),
 		scale = s,
 		refE = P.LowerTorso,
 		refR = pivot.LowerTorso,
-		posed = {},
+		posed = {}, -- [boneName] = CFrame (HRP space)
+		posedInst = {},
 		points = {},
+		hurt = {},
+		kinds = {},
 	}, PoseDriver)
+	for b, node in nodes do
+		self.kinds[node.kind] = (self.kinds[node.kind] or 0) + 1
+	end
 
+	-- reference points (blade, bow nocks, fingers) ride on their bone
 	local FALLBACK = { SwordHandle = "RightHand", BowHandle = "LeftHand" }
 	for name, pt in RigData.points do
-		local m = joints[pt.bone]
-		if m then
-			local pr = pivot[pt.bone] + G:VectorToWorldSpace((pt.pos - P[pt.bone]) * s)
-			self.points[name] = { part = m.Part1, offset = restRel[m.Part1]:PointToObjectSpace(pr) }
-		elseif FALLBACK[pt.bone] and joints[FALLBACK[pt.bone]] then
-			-- weapon imported without its own joint: ride on the hand instead
-			local hm = joints[FALLBACK[pt.bone]]
-			self.points[name] = { part = hm.Part1, offset = restRel[hm.Part1]:PointToObjectSpace(self:mapPoint(pt.pos)) }
+		local bone = pt.bone
+		local pr
+		if nodes[bone] then
+			pr = pivot[bone] + G:VectorToWorldSpace((pt.pos - P[bone]) * s)
+		elseif FALLBACK[bone] and nodes[FALLBACK[bone]] then
+			bone = FALLBACK[bone] -- weapon imported without its own joint
+			pr = self:mapPoint(pt.pos)
+		end
+		if pr then
+			self.points[name] = { bone = bone, offset = restFrame[bone]:PointToObjectSpace(pr) }
+		end
+	end
+
+	-- hurtboxes from the authoring body (independent of how parts were imported)
+	for b, hb in RigData.hurtboxes do
+		if nodes[b] then
+			local boxRest = CFrame.new(self:mapPoint(hb.center)) * G
+			table.insert(self.hurt, { name = b, offset = restFrame[b]:ToObjectSpace(boxRest), size = hb.size * s })
 		end
 	end
 	return self
@@ -279,50 +382,60 @@ function PoseDriver:mapVector(v: Vector3): Vector3
 	return self.G:VectorToWorldSpace(v)
 end
 
--- Compute posed part frames (HRP space) for `pose`. Returns self.posed.
+-- posed frame of any instance in the rig (falls back to its rest frame)
+function PoseDriver:_posedOf(inst)
+	local f = self.posedInst[inst]
+	if f then
+		return f
+	end
+	if inst ~= self.hrp and not self.byMoved[inst] and inst:IsA("Attachment") and inst.Parent then
+		return self:_posedOf(inst.Parent) * inst.CFrame -- e.g. a helper bone inside a moving bone
+	end
+	return self.restOf(inst)
+end
+
+-- Compute posed frames (HRP space) for `pose`. Returns self.posed (by bone name).
 function PoseDriver:solve(pose)
-	local posed = self.posed
-	local restRel, pivot, joints = self.restRel, self.pivot, self.joints
-	local G, Ginv = self.G, self.Ginv
-	posed[self.hrp] = CFrame.identity
+	local posed, posedInst = self.posed, self.posedInst
+	table.clear(posedInst)
+	local G, Ginv, s = self.G, self.Ginv, self.scale
 	for i, b in BONES do
-		local m = joints[b]
-		if m then
-			local p0 = m.Part0
-			local P0 = posed[p0] or restRel[p0]
-			local Jr = pivot[b]
+		local node = self.nodes[b]
+		if node then
+			local P0 = self:_posedOf(node.parent)
+			local Jr = self.pivot[b]
 			local Jp
 			if b == "LowerTorso" then
-				Jp = Jr + G:VectorToWorldSpace(pose.off * self.scale)
+				Jp = Jr + G:VectorToWorldSpace(pose.off * s)
 			else
-				Jp = P0 * restRel[p0]:PointToObjectSpace(Jr)
+				Jp = P0 * self.restOf(node.parent):PointToObjectSpace(Jr)
 			end
 			local D = G * pose.rots[i] * Ginv
-			posed[m.Part1] = CFrame.new(Jp) * D * CFrame.new(-Jr) * restRel[m.Part1]
+			local f = CFrame.new(Jp) * D * CFrame.new(-Jr) * self.restFrame[b]
+			posed[b] = f
+			posedInst[node.moved] = f
 		end
 	end
 	return posed
 end
 
--- Write Motor6D.Transform for `pose` (client side, every frame).
+-- Write the joints' Transform for `pose` (client side, every frame).
 function PoseDriver:apply(pose)
-	local posed = self:solve(pose)
-	local restRel = self.restRel
+	self:solve(pose)
 	for _, b in BONES do
-		local m = self.joints[b]
-		if m and m.Parent then
-			local P0 = posed[m.Part0] or restRel[m.Part0]
-			local P1 = posed[m.Part1]
-			m.Transform = m.C0:Inverse() * P0:Inverse() * P1 * m.C1
+		local node = self.nodes[b]
+		if node and node.obj.Parent then
+			local P0 = self:_posedOf(node.parent)
+			node.obj.Transform = node.c0:Inverse() * P0:Inverse() * self.posed[b] * node.c1
 		end
 	end
 end
 
 -- Clear Transforms (e.g. on death so ragdoll/physics can take over).
 function PoseDriver:reset()
-	for _, m in self.joints do
-		if m.Parent then
-			m.Transform = CFrame.identity
+	for _, node in self.nodes do
+		if node.obj.Parent then
+			node.obj.Transform = CFrame.identity
 		end
 	end
 end
@@ -334,14 +447,35 @@ function PoseDriver:pointWorld(name: string, rootCFrame: CFrame?): Vector3?
 	if not pt then
 		return nil
 	end
-	local posed = self.posed[pt.part] or self.restRel[pt.part]
-	return (rootCFrame or self.hrp.CFrame) * posed * pt.offset
+	local f = self.posed[pt.bone] or self.restFrame[pt.bone]
+	return (rootCFrame or self.hrp.CFrame) * f * pt.offset
 end
 
--- World CFrame of a part from the last solve().
-function PoseDriver:partWorld(part: BasePart, rootCFrame: CFrame?): CFrame
-	local posed = self.posed[part] or self.restRel[part] or CFrame.identity
-	return (rootCFrame or self.hrp.CFrame) * posed
+-- World frame of a bone from the last solve().
+function PoseDriver:boneWorld(bone: string, rootCFrame: CFrame?): CFrame?
+	local f = self.posed[bone] or self.restFrame[bone]
+	return f and (rootCFrame or self.hrp.CFrame) * f
+end
+
+-- Posed hurtboxes in world space: { {name, cf, size}, ... } (fills `out`).
+function PoseDriver:hurtboxes(rootCFrame: CFrame?, out)
+	out = out or {}
+	table.clear(out)
+	local root = rootCFrame or self.hrp.CFrame
+	for _, h in self.hurt do
+		local f = self.posed[h.name] or self.restFrame[h.name]
+		table.insert(out, { name = h.name, cf = root * f * h.offset, size = h.size })
+	end
+	return out
+end
+
+-- The BasePart that visibly moves with a bone (nil for skinned/Bone rigs).
+function PoseDriver:movingPart(bone: string)
+	local node = self.nodes[bone]
+	if node and node.kind ~= "Bone" and node.moved:IsA("BasePart") then
+		return node.moved
+	end
+	return nil
 end
 
 return PoseDriver
