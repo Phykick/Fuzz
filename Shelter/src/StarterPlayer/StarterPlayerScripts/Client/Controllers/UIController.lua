@@ -153,6 +153,7 @@ function UIController.confirm(text: string, onYes: () -> ())
 		shade:Destroy()
 		onYes()
 	end })
+	Kit.sound("open")
 	Kit.pop(card)
 end
 

@@ -17,12 +17,17 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, '..', 'src')
-ROOTS = [('ReplicatedStorage', 'ReplicatedStorage'), ('ServerScriptService', 'ServerScriptService')]
-GLOBALS = ['game', 'workspace', 'task', 'os', 'warn', 'print', 'Random', 'Instance', 'Vector3', 'CFrame', 'Color3']
+GLOBALS = ['game', 'workspace', 'task', 'os', 'warn', 'print', 'Random', 'Instance', 'Vector3', 'CFrame', 'Color3',
+           'NumberRange', 'UDim2', 'Vector2', 'Enum']
+# test file -> which source roots get bundled (client modules are only loaded when required)
+SUITES = {
+    'server_tests.luau': ['ReplicatedStorage', 'ServerScriptService'],
+    'client_sound_tests.luau': ['ReplicatedStorage', 'StarterPlayer'],
+}
 
 
-def modules():
-    for root, _ in ROOTS:
+def modules(roots):
+    for root in roots:
         base = os.path.join(SRC, root)
         for dirpath, _, files in os.walk(base):
             for fn in sorted(files):
@@ -38,30 +43,37 @@ def modules():
                 yield rel.replace(os.sep, '.'), kind, full
 
 
-def bundle(test_name):
+def bundle(test_name, suite):
     out = ['local out = print']
     with open(os.path.join(HERE, 'prelude.luau')) as f:
         out.append('local H = (function()\n' + f.read() + '\nend)()')
     out.append('local ' + ', '.join(GLOBALS) + ' = ' + ', '.join('H.env.' + g for g in GLOBALS))
-    for path, kind, full in modules():
+    out.append('H.services.StarterPlayer = H.newNode("StarterPlayer", "StarterPlayer")')
+    for path, kind, full in modules(SUITES[suite]):
         with open(full) as f:
             src = f.read()
         src = re.sub(r'^export type ', 'type ', src, flags=re.M)
         out.append('H.define(%r, %r, function(script, require)\n%s\nend)' % (path, kind, src))
-    with open(os.path.join(HERE, 'server_tests.luau')) as f:
+    with open(os.path.join(HERE, suite)) as f:
         out.append('local T = (function()\n' + f.read() + '\nend)()')
     out.append('T.__run(%r)' % test_name)
     return '\n'.join(out)
 
 
 def test_names():
-    with open(os.path.join(HERE, 'server_tests.luau')) as f:
-        return [n for n in re.findall(r'^T\.(\w+) = function', f.read(), flags=re.M) if not n.startswith('__')]
+    """test name -> suite file"""
+    names = {}
+    for suite in SUITES:
+        with open(os.path.join(HERE, suite)) as f:
+            for n in re.findall(r'^T\.(\w+) = function', f.read(), flags=re.M):
+                if not n.startswith('__'):
+                    names[n] = suite
+    return names
 
 
-def run_one(luau, name):
+def run_one(luau, name, suite):
     with tempfile.NamedTemporaryFile('w', suffix='.luau', delete=False) as f:
-        f.write(bundle(name))
+        f.write(bundle(name, suite))
         path = f.name
     try:
         p = subprocess.run([luau, path], capture_output=True, text=True, timeout=600)
@@ -80,10 +92,11 @@ def main():
     ap.add_argument('-v', '--verbose', action='store_true')
     ap.add_argument('tests', nargs='*')
     a = ap.parse_args()
-    names = a.tests or test_names()
+    suites = test_names()
+    names = a.tests or list(suites)
     failed = 0
     with cf.ThreadPoolExecutor(max_workers=os.cpu_count() or 4) as ex:
-        for name, ok, text in ex.map(lambda n: run_one(a.luau, n), names):
+        for name, ok, text in ex.map(lambda n: run_one(a.luau, n, suites[n]), names):
             print(('PASS ' if ok else 'FAIL ') + name)
             if not ok or a.verbose:
                 failed += 0 if ok else 1

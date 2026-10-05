@@ -186,6 +186,38 @@ local CFrame = {
 		return { X = x or 0, Y = y or 0, Z = z or 0 }
 	end,
 }
+local NumberRange = {
+	new = function(a, b)
+		return { Min = a, Max = b or a }
+	end,
+}
+local UDim2 = {
+	new = function(...)
+		return { ... }
+	end,
+	fromOffset = function(...)
+		return { ... }
+	end,
+	fromScale = function(...)
+		return { ... }
+	end,
+}
+local Vector2 = {
+	new = function(x, y)
+		return { X = x or 0, Y = y or 0 }
+	end,
+}
+Vector2.zero = Vector2.new()
+-- Enum.Anything.Item -> "Anything.Item"
+local Enum = setmetatable({}, {
+	__index = function(_, k)
+		return setmetatable({}, {
+			__index = function(_, j)
+				return tostring(k) .. "." .. tostring(j)
+			end,
+		})
+	end,
+})
 local Color3 = {
 	fromHex = function(h)
 		return { hex = h }
@@ -510,6 +542,10 @@ H.env = {
 	Vector3 = Vector3,
 	CFrame = CFrame,
 	Color3 = Color3,
+	NumberRange = NumberRange,
+	UDim2 = UDim2,
+	Vector2 = Vector2,
+	Enum = Enum,
 }
 
 ---------------------------------------------------------------------------------------------

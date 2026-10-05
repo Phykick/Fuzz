@@ -170,6 +170,7 @@ function VaultService.snapshot(vault: Vault)
 		raid = S.CombatService.publicState(vault),
 		serverTime = VaultService.now(),
 		mockSave = S.SaveService.isMock(),
+		settings = data.settings,
 	}
 end
 
@@ -345,6 +346,25 @@ end
 
 function VaultService.Init(services)
 	S = services
+	-- the player's sound toggles (sfx: effects + interface, music: ambience), saved with the shelter
+	S.NetService.handle("Settings", function(player, p)
+		local vault = VaultService.get(player)
+		if not vault then
+			return false, "Not ready"
+		end
+		local st = vault.data.settings
+		if type(st) ~= "table" then
+			st = {}
+			vault.data.settings = st
+		end
+		for _, key in { "sfx", "music" } do
+			if type(p[key]) == "boolean" then
+				st[key] = p[key]
+			end
+		end
+		VaultService.dirty(vault)
+		return true, st
+	end)
 end
 
 function VaultService.Start()

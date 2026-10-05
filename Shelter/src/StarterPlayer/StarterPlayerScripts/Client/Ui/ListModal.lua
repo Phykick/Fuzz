@@ -242,6 +242,9 @@ function ListModal.refresh()
 end
 
 function ListModal.open(m: string, ctx: any?)
+	if not shade.Visible then
+		Kit.sound("open")
+	end
 	mode = m
 	context = ctx
 	shade.Visible = true
@@ -250,6 +253,9 @@ function ListModal.open(m: string, ctx: any?)
 end
 
 function ListModal.close()
+	if shade.Visible then
+		Kit.sound("close")
+	end
 	mode = nil
 	shade.Visible = false
 end
