@@ -180,11 +180,15 @@ local function endRaid(vault, success: boolean)
 end
 
 local function advance(vault, raid, now: number)
-	raid.index += 1
-	local nextId = raid.order[raid.index]
 	local rooms = vault.data.rooms
-	if not nextId or not rooms[nextId] then
-		endRaid(vault, false)
+	-- rooms on the route may have been demolished or merged away since the raid began: skip them
+	local nextId
+	repeat
+		raid.index += 1
+		nextId = raid.order[raid.index]
+	until nextId == nil or rooms[nextId] ~= nil
+	if not nextId then
+		endRaid(vault, false) -- went through the whole shelter: they leave with their loot
 		return
 	end
 	local from, to = rooms[raid.roomId], rooms[nextId]
@@ -303,8 +307,14 @@ local function tickRaid(vault, raid, dt: number, now: number, events)
 	end
 end
 
-function CombatService.cancel(vault)
+-- The Overseer left mid-raid. Raiders still hammering on the door come back soon after they
+-- return (IncidentService.prime); raiders already inside escape with what they took.
+function CombatService.onLeave(vault)
+	local raid = vault.rt.raid
 	vault.rt.raid = nil
+	if raid and raid.phase == "door" then
+		vault.data.raidPending = true
+	end
 end
 
 function CombatService.Init(services)

@@ -185,12 +185,10 @@ local function resolve(vault, d, rec, t: number)
 	end
 	if d.health <= 0 then
 		rec.dead = true
-		d.status = "Dead"
-		d.health = 0
-		d.cause = "the wasteland"
 		addLog(rec, { t = t, k = "Death", text = d.name .. " did not survive " .. place .. "." })
-		S.VaultService.toast(vault, d.name .. " has died in the wasteland. Revive them to bring them home.", "bad")
-		S.DwellerService.push(vault, d)
+		-- the same death as anywhere else: revive timer, grief, shelter mood
+		S.DwellerService.kill(vault, d, "the wasteland", d.name .. " has died in the wasteland. Revive them within "
+			.. math.floor(Config.REVIVE_WINDOW / 60) .. " minutes to bring them home.")
 	elseif d.health < d.maxHealth * 0.2 and (rec.medpatches or 0) == 0 then
 		beginReturn(vault, d, rec, t, d.name .. " is badly hurt and limping home.")
 	elseif itemCount(rec) >= MAX_ITEMS then
@@ -239,15 +237,22 @@ local function arrive(vault, d, rec, now: number)
 	end
 	-- recruits follow the explorer home (housing permitting)
 	local housing = Simulation.housing(data.rooms)
-	for _ = 1, summary.recruits do
+	local found, joined = summary.recruits, 0
+	for _ = 1, found do
 		if Simulation.population(data.dwellers) < housing and entrance then
-			local nd = S.DwellerService.create(vault, { level = math.random(2, 5) })
+			local nd = S.DwellerService.create(vault, { level = vault.rt.rng:NextInteger(2, 5) })
 			nd.roomId = entrance.id
 			nd.at = entrance.id
 			nd.status = "Idle"
 			S.LifeService.wake(vault, nd, now)
 			S.DwellerService.push(vault, nd)
+			joined += 1
 		end
+	end
+	summary.recruits = joined
+	if joined < found then
+		S.VaultService.toast(vault, (found - joined) .. " survivor" .. (if found - joined == 1 then "" else "s")
+			.. " " .. d.name .. " met had to move on - no room inside. Build more Bedrooms.", "warn")
 	end
 	data.progression.stats.explorations = (data.progression.stats.explorations or 0) + 1
 	S.DwellerService.push(vault, d)
@@ -296,7 +301,8 @@ function ExplorationService.Init(services)
 			return false, "Not ready"
 		end
 		local d = vault.data.dwellers[tostring(p.dwellerId)]
-		if not d or d.status == "Dead" or d.status == "Exploring" or d.status == "Arriving" then
+		-- only survivors inside the shelter (wanderers at the door haven't been let in yet)
+		if not d or not Simulation.isInside(d) then
 			return false, "Survivor unavailable"
 		end
 		local allowed, why = Family.canExplore(d)
@@ -313,7 +319,11 @@ function ExplorationService.Init(services)
 		if count >= Exploration.MAX_EXPLORERS then
 			return false, "Only " .. Exploration.MAX_EXPLORERS .. " explorers at a time"
 		end
-		local meds = math.clamp(math.floor(tonumber(p.medpatches) or 0), 0, math.min(Exploration.MAX_MEDS, vault.data.resources.MedPatch or 0))
+		local want = tonumber(p.medpatches) or 0
+		if want ~= want then
+			want = 0 -- tonumber("nan") is NaN, and math.clamp passes NaN straight through
+		end
+		local meds = math.clamp(math.floor(want), 0, math.min(Exploration.MAX_MEDS, vault.data.resources.MedPatch or 0))
 		vault.data.resources.MedPatch -= meds
 		local now = S.VaultService.now()
 		local room = d.roomId and vault.data.rooms[d.roomId]

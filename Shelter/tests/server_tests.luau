@@ -159,7 +159,7 @@ T.smoke = function()
 			p, v = joinLoaded(1)
 		end
 	end
-	check(pcall(H.jsonCopy, v.data), "live state is DataStore-safe")
+	check(svc("VaultService").save(v, false), "a full save of the played shelter goes through")
 	check(v.data.resources.MedPatch == v.data.resources.MedPatch, "resources are numbers")
 end
 
@@ -438,8 +438,8 @@ T.rush_uses_inputs = function()
 	v.data.resources.Water = 0
 	local ok2, r2 = invokeNow(p, "Rush", { roomId = bay.id })
 	v.rt.rng = rng
-	check(ok2 and r2.success, "rush went through")
-	check(bay.pending < 1, "no medicine without water (pending " .. tostring(bay.pending) .. ")")
+	check(not (ok2 and r2.success) or bay.pending < 1, "no medicine without water (pending " .. tostring(bay.pending) .. ")")
+	check(bay.pending < 1, "no free batch")
 	v.data.resources.Water = 80
 	v.rt.rushReady[bay.id] = 0
 	v.rt.rng = { NextNumber = function(_, a, b)

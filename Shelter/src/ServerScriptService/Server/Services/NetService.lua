@@ -24,6 +24,24 @@ function NetService.send(player: Player, kind: string, payload: any)
 	end
 end
 
+-- Clients can send NaN and inf, which slip through every `<` / `>` check and poison whatever they
+-- touch. Reject any payload that carries one (nested tables included).
+local function finite(v: any, depth: number): boolean
+	if type(v) == "number" then
+		return v == v and v ~= math.huge and v ~= -math.huge
+	elseif type(v) == "table" then
+		if depth > 4 then
+			return false
+		end
+		for k, x in v do
+			if not finite(k, depth + 1) or not finite(x, depth + 1) then
+				return false
+			end
+		end
+	end
+	return true
+end
+
 local function allow(player: Player): boolean
 	local b = buckets[player]
 	local now = os.clock()
@@ -43,7 +61,7 @@ end
 function NetService.Init()
 	actionRemote, stateRemote = Net.remotes()
 	actionRemote.OnServerInvoke = function(player: Player, action: any, payload: any)
-		if type(action) ~= "string" or (payload ~= nil and type(payload) ~= "table") then
+		if type(action) ~= "string" or (payload ~= nil and type(payload) ~= "table") or not finite(payload, 0) then
 			return { ok = false, reason = "Bad request" }
 		end
 		if not allow(player) then

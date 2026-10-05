@@ -20,6 +20,7 @@ local S: any
 local FIRE_SPREAD_DELAY = 32
 local CREATURE_SPREAD_DELAY = 45
 local MAX_INCIDENTS = 3
+local RAID_RESUME_DELAY = 45 -- raiders left at the door come back this soon after the Overseer returns
 
 -- Creature infestations: which wasteland critter, how tough, how hard it bites.
 IncidentService.Creatures = {
@@ -245,7 +246,7 @@ local function tickIncidents(vault, dt: number, now: number)
 				res.Food = math.max(0, res.Food - dt * 0.4 * room.modules)
 			end
 			for _, d in fighters do
-				dps += 1.6 + Simulation.stat(d, "FIT") * 0.15 + Simulation.stat(d, "FIT") * 0.1
+				dps += 1.6 + Simulation.stat(d, "FIT") * 0.25
 				local burn = dt * 1.4 * (1 - math.min(0.4, Simulation.stat(d, "FIT") * 0.04))
 				S.DwellerService.damage(vault, d, burn, "burns")
 			end
@@ -345,17 +346,42 @@ local function rollIncidents(vault, now: number)
 	local pop = Simulation.population(vault.data.dwellers)
 	if now >= vault.rt.nextRaid and not S.CombatService.active(vault) then
 		vault.rt.nextRaid = now + Difficulty.raidDelay(rng, p)
+		vault.data.raidPending = nil
 		if pop >= 3 then
 			S.CombatService.startRaid(vault)
 		end
 	end
 end
 
+-- Whether anything in the shelter is on fire, infested or being raided (morale; Brave / Nervous).
+function IncidentService.danger(vault): number
+	if S.CombatService.active(vault) then
+		return 1
+	end
+	for _, r in vault.data.rooms do
+		if r.incident and r.incident.kind ~= "Breakdown" then
+			return 1
+		end
+	end
+	return 0
+end
+
 function IncidentService.prime(vault)
 	local now = S.VaultService.now()
 	vault.rt.lastIncident = now
 	vault.rt.nextRoll = now + 60
-	vault.rt.nextRaid = now + Config.RAID_FIRST_DELAY
+	-- raiders who were still at the door when the Overseer left haven't given up
+	vault.rt.nextRaid = now + (if vault.data.raidPending then RAID_RESUME_DELAY else Config.RAID_FIRST_DELAY)
+	-- emergencies are saved with the shelter (rejoining doesn't put out fires); their spread
+	-- timers aren't, so restart them from now
+	for _, room in vault.data.rooms do
+		local inc = room.incident
+		if inc then
+			inc.spreadAt = if inc.kind == "Breakdown" then math.huge
+				elseif CREATURES[inc.kind] then now + CREATURE_SPREAD_DELAY
+				else now + FIRE_SPREAD_DELAY
+		end
+	end
 end
 
 function IncidentService.Init(services)

@@ -148,13 +148,14 @@ function DwellerService.moveTo(vault, d, room, now: number): (boolean, string?)
 	return true
 end
 
-function DwellerService.kill(vault, d, cause: string)
+function DwellerService.kill(vault, d, cause: string, message: string?)
 	if d.status == "Dead" then
 		return
 	end
 	local room = removeFromRoom(vault, d)
 	d.status = "Dead"
 	d.health = 0
+	d.roomId = nil -- the job is free again; the body stays where they fell (d.at)
 	d.travel = nil
 	d.activity = nil
 	S.LifeService.onDeath(vault, d, S.VaultService.now())
@@ -162,8 +163,8 @@ function DwellerService.kill(vault, d, cause: string)
 	d.deadFor = 0
 	d.cause = cause
 	table.insert(vault.rt.mood, { value = -20, expires = os.clock() + 600 })
-	S.VaultService.toast(vault, d.name .. " has died (" .. cause .. "). Revive them within "
-		.. math.floor(Config.REVIVE_WINDOW / 60) .. " minutes or lose them for good.", "bad")
+	S.VaultService.toast(vault, message or (d.name .. " has died (" .. cause .. "). Revive them within "
+		.. math.floor(Config.REVIVE_WINDOW / 60) .. " minutes or lose them for good."), "bad")
 	DwellerService.push(vault, d)
 	if room then
 		DwellerService.pushRoom(vault, room)
@@ -250,6 +251,7 @@ local function context(vault)
 		housing = Simulation.housing(vault.data.rooms),
 		mood = math.clamp(mood, -40, 20),
 		now = S.VaultService.now(),
+		danger = S.IncidentService.danger(vault),
 	}
 end
 
@@ -511,6 +513,7 @@ function DwellerService.Init(services)
 		end)
 		d.name = if ok then filtered else d.name
 		DwellerService.push(vault, d)
+		S.VaultService.dirty(vault)
 		return true
 	end)
 end

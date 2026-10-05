@@ -225,7 +225,7 @@ function Simulation.memoryMood(d: any, now: number): number
 end
 
 -- Target happiness for a survivor; actual happiness drifts towards it.
--- ctx: rooms, resources, population, housing, mood (shelter-wide), now
+-- ctx: rooms, resources, population, housing, mood (shelter-wide), now, danger (0..1)
 function Simulation.happinessTarget(d: any, ctx: { [string]: any }): number
 	local h = 55
 	if d.status == "Working" and d.roomId then
@@ -245,6 +245,8 @@ function Simulation.happinessTarget(d: any, ctx: { [string]: any }): number
 	if (ctx.resources.Power or 0) <= 0 then
 		h -= 8 -- lights out
 	end
+	-- fires, infestations and raids rattle people (Brave: not at all, Nervous: twice as much)
+	h -= 6 * (ctx.danger or 0) * DwellerDefinitions.traitFactor(d, "danger")
 	if d.health < d.maxHealth * 0.5 then
 		h -= 10
 	end

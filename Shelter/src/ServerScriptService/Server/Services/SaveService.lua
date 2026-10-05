@@ -8,11 +8,15 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local DwellerDefinitions = require(ReplicatedStorage.Shared.DwellerDefinitions)
 local Needs = require(ReplicatedStorage.Shared.Needs)
+local RoomDefinitions = require(ReplicatedStorage.Shared.RoomDefinitions)
 
 local SaveService = {}
 
 local STORE_NAME = "UH_Shelters_v1"
-local LOCK_TTL = 600 -- seconds before an abandoned session lock may be stolen
+-- Seconds before an abandoned session lock may be taken over. A live server re-saves (refreshing
+-- its lock) at least every LOCK_REFRESH seconds, so this only bites after a crash.
+local LOCK_TTL = 240
+SaveService.LOCK_REFRESH = 80
 local JOB = game.JobId ~= "" and game.JobId or ("studio-" .. tostring(math.random(1e6)))
 
 type Store = {
@@ -89,24 +93,114 @@ function SaveService.isMock(): boolean
 	return usingMock
 end
 
-local function validate(data: any): (boolean, string?)
+-- Damaged saves -----------------------------------------------------------------
+local function goodRoom(r: any): boolean
+	return type(r) == "table" and type(r.type) == "string" and RoomDefinitions.Types[r.type] ~= nil
+		and type(r.col) == "number" and type(r.row) == "number"
+end
+
+local function goodDweller(d: any): boolean
+	return type(d) == "table" and type(d.stats) == "table" and type(d.name) == "string"
+end
+
+-- Why a save can't be used at all (nil when it can, perhaps after repair()).
+local function unusable(data: any): string?
 	if type(data) ~= "table" then
-		return false, "not a table"
+		return "not a table"
 	end
 	if type(data.rooms) ~= "table" or type(data.dwellers) ~= "table" or type(data.resources) ~= "table" then
-		return false, "missing core tables"
+		return "missing core tables"
 	end
+	for _, r in data.rooms do
+		if goodRoom(r) and r.type == "Entrance" then
+			return nil
+		end
+	end
+	return "no blast door"
+end
+
+-- Damaged room / survivor records (read-only scan).
+local function problemsIn(data: any): { string }
+	local problems = {}
 	for id, r in data.rooms do
-		if type(r) ~= "table" or type(r.type) ~= "string" or type(r.col) ~= "number" or type(r.row) ~= "number" then
-			return false, "bad room " .. tostring(id)
+		if not goodRoom(r) then
+			table.insert(problems, "bad room " .. tostring(id))
 		end
 	end
 	for id, d in data.dwellers do
-		if type(d) ~= "table" or type(d.stats) ~= "table" or type(d.name) ~= "string" then
-			return false, "bad dweller " .. tostring(id)
+		if not goodDweller(d) then
+			table.insert(problems, "bad dweller " .. tostring(id))
 		end
 	end
-	return true
+	return problems
+end
+
+-- Drop damaged records and every reference to them, keeping the rest of the shelter.
+local function repair(data: any)
+	for id, r in data.rooms do
+		if not goodRoom(r) then
+			data.rooms[id] = nil
+		end
+	end
+	for id, d in data.dwellers do
+		if not goodDweller(d) then
+			data.dwellers[id] = nil
+		end
+	end
+	for _, r in data.rooms do
+		if type(r.assigned) ~= "table" then
+			r.assigned = {}
+		end
+		for i = #r.assigned, 1, -1 do
+			if data.dwellers[r.assigned[i]] == nil then
+				table.remove(r.assigned, i)
+			end
+		end
+	end
+	for _, d in data.dwellers do
+		if d.roomId ~= nil and data.rooms[d.roomId] == nil then
+			d.roomId = nil
+			if d.status == "Working" then
+				d.status = "Idle"
+			end
+		end
+		if d.at ~= nil and data.rooms[d.at] == nil then
+			d.at = nil
+		end
+		if d.partner ~= nil and data.dwellers[d.partner] == nil then
+			d.partner = nil
+		end
+	end
+	if type(data.exploration) == "table" then
+		for id in data.exploration do
+			if data.dwellers[id] == nil then
+				data.exploration[id] = nil
+			end
+		end
+	end
+	if type(data.inventory) == "table" then
+		for _, item in data.inventory do
+			if type(item) == "table" and item.equippedBy ~= nil and data.dwellers[item.equippedBy] == nil then
+				item.equippedBy = nil
+			end
+		end
+	end
+end
+
+-- Keep a copy of a damaged save before anything overwrites it. Must succeed before the player
+-- is allowed to play on (and autosave over) that shelter.
+local function archive(s: any, key: string, data: any): boolean
+	for attempt = 1, 3 do
+		local ok, err = pcall(function()
+			s:SetAsync(key .. "_corrupt_" .. os.time(), data)
+		end)
+		if ok then
+			return true
+		end
+		warn("[SaveService] archiving damaged save", key, "failed:", err)
+		task.wait(attempt)
+	end
+	return false
 end
 
 -- Upgrade older payloads and fill fields added since they were written.
@@ -124,15 +218,53 @@ function SaveService.migrate(data: any, template: any): any
 	return data
 end
 
--- Returns (data|nil, status). data == nil means "no save yet" (fresh player).
+local function lockedElsewhere(cur: any): boolean
+	return cur ~= nil and cur.lock ~= nil and cur.lock.job ~= JOB and os.time() - (cur.lock.time or 0) < LOCK_TTL
+end
+
+-- Let go of this server's session lock without writing shelter data (e.g. the player left while
+-- their shelter was still loading). Does nothing if another server holds the lock.
+function SaveService.releaseLock(userId: number): boolean
+	local key = "shelter_" .. userId
+	local s = store :: any
+	for attempt = 1, 3 do
+		local ok, err = pcall(function()
+			s:UpdateAsync(key, function(cur)
+				if cur == nil or cur.lock == nil or cur.lock.job ~= JOB then
+					return nil
+				end
+				cur.lock = nil
+				return cur
+			end)
+		end)
+		if ok then
+			return true
+		end
+		warn("[SaveService] releasing lock for", userId, "failed:", err)
+		task.wait(attempt)
+	end
+	return false
+end
+
+-- Returns (data|nil, status):
+--   "new"      no save yet (fresh player)
+--   "loaded"   ok
+--   "repaired" damaged rooms / survivors were dropped (the original is archived)
+--   "corrupt"  unusable (archived); start a new shelter
+--   "locked"   open on another server right now
+--   "failed"   DataStore trouble
+-- After "locked" / "failed" this server holds no lock; otherwise it does.
 function SaveService.load(userId: number, template: any): (any?, string)
 	local key = "shelter_" .. userId
 	local s = store :: any
+	local busy = false
 	for attempt = 1, 5 do
 		local payload
+		busy = false
 		local ok, err = pcall(function()
 			payload = s:UpdateAsync(key, function(cur)
-				if cur and cur.lock and cur.lock.job ~= JOB and os.time() - (cur.lock.time or 0) < LOCK_TTL then
+				if lockedElsewhere(cur) then
+					busy = true
 					return nil -- locked by another live server: abort this update, retry later
 				end
 				cur = cur or { data = nil }
@@ -145,31 +277,51 @@ function SaveService.load(userId: number, template: any): (any?, string)
 			if data == nil then
 				return nil, "new"
 			end
-			local valid, why = validate(data)
-			if not valid then
-				warn("[SaveService] corrupt save for", userId, why, "- quarantining")
-				pcall(function()
-					s:SetAsync(key .. "_corrupt_" .. os.time(), data)
-				end)
+			local why = unusable(data)
+			local problems = if why then { why } else problemsIn(data)
+			if #problems == 0 then
+				return SaveService.migrate(data, template), "loaded"
+			end
+			warn("[SaveService] damaged save for", userId, table.concat(problems, ", "), "- archiving")
+			if not archive(s, key, data) then
+				-- never let this session's saves overwrite a damaged shelter we couldn't keep a copy of
+				SaveService.releaseLock(userId)
+				return nil, "failed"
+			end
+			if why then
 				return nil, "corrupt"
 			end
-			return SaveService.migrate(data, template), "loaded"
+			repair(data)
+			if unusable(data) then
+				return nil, "corrupt"
+			end
+			return SaveService.migrate(data, template), "repaired"
 		end
 		warn("[SaveService] load attempt", attempt, "failed:", err or "session locked elsewhere")
 		task.wait(2 ^ attempt * 0.5)
 	end
-	return nil, "failed"
+	return nil, if busy then "locked" else "failed"
 end
 
-function SaveService.save(userId: number, data: any, release: boolean): boolean
+-- Write a shelter. `abort` is checked as the write lands (a late autosave must not re-take a lock
+-- the final save just released). Returns (saved, outcome): outcome is "saved", "skipped",
+-- "locked" (another server owns the session now - nothing was written) or "error".
+function SaveService.save(userId: number, data: any, release: boolean, abort: (() -> boolean)?): (boolean, string)
 	local key = "shelter_" .. userId
 	local s = store :: any
 	for attempt = 1, 3 do
+		local outcome = "saved"
 		local ok, err = pcall(function()
 			s:UpdateAsync(key, function(cur)
-				if cur and cur.lock and cur.lock.job ~= JOB and os.time() - (cur.lock.time or 0) < LOCK_TTL then
+				if abort and abort() then
+					outcome = "skipped"
+					return nil
+				end
+				if lockedElsewhere(cur) then
+					outcome = "locked"
 					return nil -- another server owns this session now; never clobber it
 				end
+				outcome = "saved"
 				return {
 					data = data,
 					lock = if release then nil else { job = JOB, time = os.time() },
@@ -178,12 +330,12 @@ function SaveService.save(userId: number, data: any, release: boolean): boolean
 			end)
 		end)
 		if ok then
-			return true
+			return outcome == "saved", outcome
 		end
 		warn("[SaveService] save attempt", attempt, "failed:", err)
 		task.wait(attempt)
 	end
-	return false
+	return false, "error"
 end
 
 function SaveService.Init()

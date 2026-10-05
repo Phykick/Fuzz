@@ -81,9 +81,10 @@ local function deposit(vault, room, tapped: boolean, now: number)
 		vault.rt.wasted[resKey] = now -- storage full: production is being thrown away
 	end
 	local bolts = 0
-	if tapped and amount > 0 then
+	-- the tap bonus is for what actually made it into storage, not what overflowed
+	if tapped and gained > 0 then
 		local luck = crewLuck(vault, room, now)
-		bolts = math.ceil(amount * 0.3 * (1 + luck * 0.06))
+		bolts = math.ceil(gained * 0.3 * (1 + luck * 0.06))
 		if vault.rt.rng:NextNumber() < luck * 0.02 then
 			bolts *= 2
 		end
@@ -353,6 +354,15 @@ function ResourceService.Init(services)
 		if crew == 0 then
 			return false, "Nobody is at work in there right now"
 		end
+		local rate = Simulation.roomRate(room, vault.data.dwellers, now, vault.rt.powerFactor or 1)
+		if rate <= 0 then
+			return false, "No power to run the machines"
+		end
+		for key in def.inputs or {} do
+			if (vault.data.resources[key] or 0) <= 0 then
+				return false, "No " .. string.lower(key) .. " to work with"
+			end
+		end
 		local fail = Simulation.rushFailChance(room, luck)
 		vault.rt.rushReady[room.id] = now + Config.RUSH_COOLDOWN
 		room.rushStack = (room.rushStack or 0) + 1
@@ -361,9 +371,13 @@ function ResourceService.Init(services)
 			S.IncidentService.startIncident(vault, room, "rush")
 			return true, { success = false, chance = fail }
 		end
-		local rate = Simulation.roomRate(room, vault.data.dwellers, now, vault.rt.powerFactor or 1)
-		room.pending = math.max(room.pending + rate * Config.RUSH_MINUTES, batchSize(room))
-		room.readySince = now
+		-- a rush is a burst of the crew's normal work: same rate, and it draws the room's inputs
+		-- (water for hydroponics and medicine) like any other production
+		rate = produce(vault, room, def, rate, Config.RUSH_MINUTES * 60, emptyFlow())
+		room.pending += rate * Config.RUSH_MINUTES
+		if room.pending >= 1 then
+			room.readySince = now
+		end
 		for _, id in room.assigned do
 			local d = vault.data.dwellers[id]
 			if d then
@@ -372,6 +386,7 @@ function ResourceService.Init(services)
 		end
 		S.DwellerService.pushRoom(vault, room)
 		S.VaultService.dirty(vault)
+		ResourceService.pushResources(vault)
 		return true, { success = true, chance = fail }
 	end)
 end

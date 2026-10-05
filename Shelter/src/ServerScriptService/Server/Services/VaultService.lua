@@ -16,6 +16,7 @@ export type Vault = {
 	data: any,
 	rt: any,
 	loaded: boolean,
+	closed: boolean?, -- the player left / the server is closing; no more autosaves
 }
 
 local vaults: { [Player]: Vault } = {}
@@ -177,14 +178,21 @@ function VaultService.sendSnapshot(vault: Vault)
 end
 
 -- Save / load ------------------------------------------------------------------
+local inFlight = 0 -- loads and saves still talking to the DataStore (BindToClose waits for them)
+
 local function cleanForSave(data: any): any
-	-- Runtime-only fields never persist (fires, travel paths, pending timers).
+	-- Runtime-only fields never persist (travel paths, pending timers).
 	local copy = table.clone(data)
 	copy.rooms = {}
 	for id, r in data.rooms do
 		local rr = table.clone(r)
-		rr.incident = nil
 		rr.readySince = nil
+		if r.incident then
+			-- emergencies persist, so leaving and rejoining doesn't put out a fire or pay for a
+			-- repair; the spread timer (math.huge for breakdowns) restarts on load
+			rr.incident = table.clone(r.incident)
+			rr.incident.spreadAt = nil
+		end
 		rr.assigned = table.clone(r.assigned)
 		copy.rooms[id] = rr
 	end
@@ -199,15 +207,62 @@ local function cleanForSave(data: any): any
 	return copy
 end
 
-function VaultService.save(vault: Vault, release: boolean)
+-- Returns true when the shelter was written. release = final save (drops the session lock).
+function VaultService.save(vault: Vault, release: boolean): boolean
 	if not vault.loaded then
-		return
+		return false
 	end
-	local ok = S.SaveService.save(vault.userId, cleanForSave(vault.data), release)
+	if not release and vault.rt.saving then
+		return false -- the previous autosave is still on its way
+	end
+	vault.rt.saving = true
+	vault.rt.dirty = false -- changes from here on belong to the next save
+	inFlight += 1
+	local success, ok, outcome = pcall(S.SaveService.save, vault.userId, cleanForSave(vault.data), release, function()
+		-- once the final save has started, a late autosave must not re-take the session lock
+		return not release and vault.closed == true
+	end)
+	inFlight -= 1
+	vault.rt.saving = false
+	if not success then
+		warn("[VaultService] save failed:", ok)
+		ok, outcome = false, "error"
+	end
 	if ok then
-		vault.rt.dirty = false
+		vault.rt.lastSave = os.clock()
+	else
+		vault.rt.dirty = true
+		if outcome == "locked" and vault.player.Parent then
+			-- another server took this shelter over: stop here rather than keep playing a session
+			-- whose progress can no longer be saved
+			vault.player:Kick("Your shelter was opened on another server. Please rejoin.")
+		end
 	end
 	return ok
+end
+
+local function hasVault(userId: number): boolean
+	for _, v in vaults do
+		if v.userId == userId then
+			return true
+		end
+	end
+	return false
+end
+
+-- The player left (or the server is closing): final save, releasing the session lock.
+local function closeVault(player: Player)
+	local vault = vaults[player]
+	if not vault then
+		return
+	end
+	vaults[player] = nil
+	vault.closed = true
+	if vault.loaded then
+		S.CombatService.onLeave(vault)
+		VaultService.save(vault, true)
+	end
+	-- still loading: onPlayerAdded lets go of the lock once the load returns
 end
 
 local function onPlayerAdded(player: Player)
@@ -219,24 +274,45 @@ local function onPlayerAdded(player: Player)
 		loaded = false,
 	}
 	vaults[player] = vault
-	local data, status = S.SaveService.load(player.UserId, template())
-	if vaults[player] ~= vault then
-		return -- left during load
+	inFlight += 1
+	local okLoad, data, status = pcall(S.SaveService.load, player.UserId, template())
+	if not okLoad then
+		warn("[VaultService] load failed for", player.UserId, data)
+		data, status = nil, "error"
 	end
-	if status == "failed" then
-		player:Kick("Could not load your shelter safely. Please rejoin in a moment.")
+	if vaults[player] ~= vault or status == "error" then
+		-- left mid-load (or the load blew up): don't sit on the session lock we may have taken,
+		-- or the player is locked out of every other server until it expires
+		if status ~= "failed" and status ~= "locked" and not hasVault(player.UserId) then
+			S.SaveService.releaseLock(player.UserId)
+		end
+		inFlight -= 1
+		if vaults[player] == vault then
+			vaults[player] = nil
+			player:Kick("Could not load your shelter safely. Please rejoin in a moment.")
+		end
+		return
+	end
+	inFlight -= 1
+	if status == "failed" or status == "locked" then
+		vaults[player] = nil
+		player:Kick(if status == "locked"
+			then "Your shelter is still open on another server. Please rejoin in a minute."
+			else "Could not load your shelter safely. Please rejoin in a moment.")
 		return
 	end
 	local fresh = data == nil
 	vault.data = data or template()
 	for _, r in vault.data.rooms do
-		r.incident = nil
 		r.readySince = nil
 		r.pending = r.pending or 0
 	end
 	for _, d in vault.data.dwellers do
 		d.travel = nil
 		d.arriveAt = 0
+		if d.status == "Dead" then
+			d.roomId = nil -- older saves kept the job of the dead (their slot is already free)
+		end
 	end
 	if fresh then
 		seedNewShelter(vault)
@@ -260,7 +336,10 @@ local function onPlayerAdded(player: Player)
 	end
 	if status == "corrupt" then
 		VaultService.toast(vault, "Your previous save was damaged and has been archived. A new shelter was founded.", "bad")
+	elseif status == "repaired" then
+		VaultService.toast(vault, "Some damaged records in your save were removed. A backup was kept.", "warn")
 	end
+	vault.rt.lastSave = os.clock() -- loading just took (refreshed) the session lock
 	VaultService.dirty(vault)
 end
 
@@ -273,27 +352,27 @@ function VaultService.Start()
 	for _, p in Players:GetPlayers() do
 		task.spawn(onPlayerAdded, p)
 	end
-	Players.PlayerRemoving:Connect(function(player)
-		local vault = vaults[player]
-		vaults[player] = nil
-		if vault and vault.loaded then
-			S.CombatService.cancel(vault)
-			VaultService.save(vault, true)
-		end
-	end)
+	Players.PlayerRemoving:Connect(closeVault)
 	game:BindToClose(function()
-		local threads = {}
-		for _, vault in vaults do
-			table.insert(threads, task.spawn(function()
-				VaultService.save(vault, true)
-			end))
+		-- Final saves for everyone still here, then wait for every load and save in flight
+		-- (including ones PlayerRemoving started): the server process ends as soon as this returns.
+		local players = {}
+		for player in vaults do
+			table.insert(players, player)
 		end
-		task.wait(2)
+		for _, player in players do
+			task.spawn(closeVault, player)
+		end
+		local deadline = os.clock() + 25
+		repeat
+			task.wait(0.1)
+		until inFlight == 0 or os.clock() > deadline
 	end)
 	while true do
 		task.wait(Config.AUTOSAVE_INTERVAL)
 		for _, vault in vaults do
-			if vault.loaded and vault.rt.dirty then
+			-- saving also refreshes the session lock, so save now and then even if nothing changed
+			if vault.loaded and (vault.rt.dirty or os.clock() - (vault.rt.lastSave or 0) >= S.SaveService.LOCK_REFRESH) then
 				task.spawn(VaultService.save, vault, false)
 			end
 		end
