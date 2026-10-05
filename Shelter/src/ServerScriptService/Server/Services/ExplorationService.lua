@@ -223,6 +223,7 @@ local function arrive(vault, d, rec, now: number)
 	end
 	data.exploration[d.id] = nil
 	d.status = "Idle"
+	S.LifeService.expedition(vault, d, now, true)
 	if entrance then
 		d.roomId = entrance.id
 		d.at = entrance.id
@@ -337,6 +338,8 @@ function ExplorationService.Init(services)
 		d.status = "Exploring"
 		d.travel = nil
 		d.roomId = nil
+		d.respond = nil
+		S.LifeService.expedition(vault, d, now, false)
 		vault.data.exploration[d.id] = {
 			start = now,
 			seed = vault.rt.rng:NextInteger(1, 2 ^ 30),

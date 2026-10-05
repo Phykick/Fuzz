@@ -56,6 +56,7 @@ local function survivorRow(d: any, order: number, statKey: string?, onTap: () ->
 	local where = if d.status == "Dead" then "Deceased"
 		elseif d.status == "Arriving" then "On the way"
 		elseif d.status == "Waiting" then "At the door"
+		elseif d.status == "Exploring" then "In the wasteland"
 		elseif room then RoomDefinitions.Types[room.type].name
 		else "Unassigned"
 	if d.child then

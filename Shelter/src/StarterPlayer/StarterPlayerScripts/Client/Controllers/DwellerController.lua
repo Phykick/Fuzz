@@ -48,6 +48,7 @@ local BARKS = {
 	Infirmary = { "Hold still, this'll sting.", "Deep breaths.", "You'll be fine." },
 	Workshop = { "Hand me that wrench.", "Good scrap in this pile.", "Sparks everywhere!" },
 	Grown = { "Ready to pull my weight!", "I'm a grown-up now!" },
+	Respond = { "On my way!", "I've got this!", "Hang on, help's coming!", "Coming through!" },
 }
 
 type V = {
@@ -392,8 +393,9 @@ local function think(v: V, t: number)
 		return
 	end
 	local spots = C.VaultRenderer.workSpots(room.id)
-	if room.incident and room.incident.kind == "Breakdown" and act == "Working" and #spots > 0 then
-		local idx = table.find(room.assigned, d.id) or 1
+	if room.incident and room.incident.kind == "Breakdown" and (act == "Working" or act == "Responding") and #spots > 0 then
+		-- crew at their own stations; responders sent to help take the next free one
+		local idx = table.find(room.assigned, d.id) or (#room.assigned + 1)
 		local spot = spots[((idx - 1) % #spots) + 1]
 		v.goal = spot.pos + Vector3.new((math.random() - 0.5) * 0.6, 0, 0)
 		v.goalYaw = yawFor(spot.face or 180)
@@ -475,10 +477,11 @@ local function stepDweller(v: V, dt: number, t: number, serverNow: number)
 	end
 	local tr = d.travel
 	if tr and serverNow < tr.start + tr.duration then
+		local rate = tr.rate or 1 -- > 1: hurrying (emergency responders run)
 		local key = tostring(tr.start)
 		if v.travelKey ~= key then
 			v.travelKey = key
-			local sx, srow = Pathing.sample(tr.points, tr.x0, tr.row0, serverNow - tr.start)
+			local sx, srow = Pathing.sample(tr.points, tr.x0, tr.row0, (serverNow - tr.start) * rate)
 			local sp = Vector3.new(sx, floorY(srow), v.lane)
 			if v.pos.Y > -900 and (v.pos - sp).Magnitude < 40 then
 				v.blendOffset = v.pos - sp
@@ -488,7 +491,7 @@ local function stepDweller(v: V, dt: number, t: number, serverNow: number)
 			end
 			v.goal = nil
 		end
-		local x, rowf, mode, dir = Pathing.sample(tr.points, tr.x0, tr.row0, serverNow - tr.start)
+		local x, rowf, mode, dir = Pathing.sample(tr.points, tr.x0, tr.row0, (serverNow - tr.start) * rate)
 		local p = Vector3.new(x, floorY(rowf), if mode == "lift" then 0 else v.lane)
 		if v.blend > 0 then
 			v.blend = math.max(0, v.blend - dt / 0.45)
@@ -500,7 +503,8 @@ local function stepDweller(v: V, dt: number, t: number, serverNow: number)
 			v.targetYaw = math.pi
 			C.VaultRenderer.carTo(math.floor(x / UNIT), p.Y)
 		else
-			anim:play("Walk")
+			anim:play(if rate > 1 then "Run" else "Walk")
+			anim:setParam("speed", rate)
 			setFacing(v, dir)
 		end
 		v.nextThink = 0

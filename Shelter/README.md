@@ -1,10 +1,11 @@
 # Underhaven (Shelter v1)
 
 - `Shelterv1.rbxl`: the place file as uploaded.
-- `Shelterv1-fixed.rbxl`: the same place with the bug fixes applied. Only the `Source` of 10 server/shared scripts differs.
+- `Shelterv1-fixed.rbxl`: the same place with the bug fixes and the emergency-response update applied. Only script `Source` differs (15 scripts); the map, meshes and settings are untouched.
 - `src/`: the game's scripts (ReplicatedStorage, ServerScriptService, StarterPlayer), extracted from the place. Edit these, then rebuild the place.
 - `tests/`: a headless test harness for the server code (fake Roblox APIs, virtual clock, DataStores with latency and failure injection).
 - `tools/`: a reader/writer for the binary place format.
+- `DESIGN_STATUS.md`: where the game stands against the design brief, section by section.
 
 ## Run the server tests
 

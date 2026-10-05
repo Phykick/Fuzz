@@ -31,6 +31,10 @@ local RELAX_AFTER_WAKE = 18 -- morning downtime in the bedroom (couples meet her
 local TREAT_THRESHOLD = 0.45
 local VISIT_COOLDOWN = 150
 local SOCIAL_EVERY = 5
+local RESPOND_EVERY = 2 -- seconds between emergency dispatch passes
+local RESPOND_HEALTH = 0.5 -- nobody below half health is sent (or goes back) into danger
+local RETREAT_HEALTH = 0.3 -- anyone in a fire or fight pulls out below this
+local RESPOND_RATE = 1.6 -- responders run
 
 local ERRAND_OF = { Eating = "eat", Drinking = "drink", Sleeping = "sleep", Treatment = "treat" }
 
@@ -73,7 +77,8 @@ local function nearest(vault, d, now: number, filter: (any) -> boolean): any
 end
 
 -- Send a survivor somewhere to do something. duration = seconds once there (nil = open-ended).
-function LifeService.goTo(vault, d: any, room: any, activity: string, now: number, duration: number?): boolean
+-- rate > 1 hurries them along the route (travel.rate; Pathing.sample takes time * rate).
+function LifeService.goTo(vault, d: any, room: any, activity: string, now: number, duration: number?, rate: number?): boolean
 	local here = d.at == room.id and arrived(d, now) and not (d.travel and now < d.travel.start + d.travel.duration)
 	if here and d.activity == activity and duration == nil and d.activityEnd == nil then
 		vault.rt.think[d.id] = now + WORK_CHECK -- already doing exactly this
@@ -88,8 +93,9 @@ function LifeService.goTo(vault, d: any, room: any, activity: string, now: numbe
 		if not path then
 			return false
 		end
-		d.travel = { x0 = x0, row0 = row0, points = path.points, start = now, duration = path.duration }
-		d.arriveAt = now + path.duration
+		local r = rate or 1
+		d.travel = { x0 = x0, row0 = row0, points = path.points, start = now, duration = path.duration / r, rate = if r ~= 1 then r else nil }
+		d.arriveAt = now + path.duration / r
 	end
 	d.at = room.id
 	d.activity = activity
@@ -200,21 +206,140 @@ local function startTreatment(vault, d, now: number): boolean
 	return LifeService.goTo(vault, d, bay, "Treatment", now, nil)
 end
 
+-- Emergencies --------------------------------------------------------------------------------
+-- Hands a room's emergency needs on site: people to fight a fire or critters, and a repair crew
+-- once the Overseer has paid for the parts (an unpaid breakdown waits on that decision).
+local function handsWanted(room): number
+	local inc = room.incident
+	if not inc then
+		return 0
+	elseif inc.kind == "Breakdown" then
+		return if inc.paid then 2 else 0
+	end
+	return math.clamp(room.modules + 1, 2, 4)
+end
+
+-- A fire or a fight (breakdowns aren't dangerous).
+local function dangerous(room): boolean
+	return room ~= nil and room.incident ~= nil and room.incident.kind ~= "Breakdown"
+end
+
+-- How suited someone is to answer a room's emergency: travel time minus a bonus for the right
+-- skill (engineers for repairs, fitness for fires, combat for critters). nil = not available.
+local function responderCost(vault, d, room, now: number): number?
+	if not Simulation.isInside(d) or not Family.canFight(d) or d.respond then
+		return nil
+	end
+	if d.activity == "Sleeping" or d.activity == "Treatment" or d.health < d.maxHealth * RESPOND_HEALTH then
+		return nil
+	end
+	local where = d.at or d.roomId
+	if where == room.id then
+		return nil -- already there (and counted)
+	end
+	local current = where and vault.data.rooms[where]
+	if current and handsWanted(current) > 0 then
+		return nil -- busy with their own room's emergency
+	end
+	local raid = vault.rt.raid
+	if raid and raid.roomId == where then
+		return nil -- holding off raiders
+	end
+	local x0, row0 = S.DwellerService.location(vault, d, now)
+	local cost = math.abs(Grid.roomCenterX(room) - x0) / Config.WALK_SPEED + math.abs(room.row - row0) * 2.5
+	local kind = room.incident.kind
+	if kind == "Breakdown" then
+		return cost - Simulation.stat(d, "ENG") * 4
+	end
+	return cost - Simulation.stat(d, if kind == "Fire" then "FIT" else "CMB") * 2
+end
+
+-- Drop everything and run to a room's emergency.
+function LifeService.respond(vault, d, room, now: number): boolean
+	d.respond = room.id
+	if not LifeService.goTo(vault, d, room, "Responding", now, nil, RESPOND_RATE) then
+		d.respond = nil
+		return false
+	end
+	vault.rt.think[d.id] = math.max(now, d.arriveAt or now) -- size things up on arrival
+	S.VaultService.send(vault, "bark", { id = d.id, kind = "Respond" })
+	return true
+end
+
+-- Top up every emergency with the best-placed people who can be spared; release responders
+-- whose emergency is over.
+local function dispatch(vault, now: number)
+	local rooms = vault.data.rooms
+	local onTheWay: { [string]: number } = {}
+	for _, d in vault.data.dwellers do
+		local target = d.respond and rooms[d.respond]
+		if d.respond and (not target or handsWanted(target) == 0) then
+			vault.rt.think[d.id] = now -- it's over: back to their routine
+		elseif target and not arrived(d, now) then
+			onTheWay[target.id] = (onTheWay[target.id] or 0) + 1
+		end
+	end
+	for _, room in rooms do
+		local want = handsWanted(room)
+		if want > 0 then
+			local present = S.IncidentService.present(vault, room, now)
+			if dangerous(room) then
+				for _, d in present do
+					if d.health < d.maxHealth * RETREAT_HEALTH then
+						vault.rt.think[d.id] = now -- badly hurt: decide now (they'll pull out)
+					end
+				end
+			end
+			local have = #present + (onTheWay[room.id] or 0)
+			while have < want do
+				local best, bestCost = nil, math.huge
+				for _, d in vault.data.dwellers do
+					local c = responderCost(vault, d, room, now)
+					if c and c < bestCost then
+						best, bestCost = d, c
+					end
+				end
+				if not best or not LifeService.respond(vault, best, room, now) then
+					break
+				end
+				have += 1
+			end
+		end
+	end
+end
+
 -- Where a survivor belongs when no need is pressing: their job, else somewhere to unwind.
 local function goHome(vault, d, now: number, relaxFor: number?)
 	local job = d.roomId and vault.data.rooms[d.roomId]
-	if job and d.status == "Working" and not relaxFor then
+	-- the badly hurt don't walk back into a fire or a fight
+	local unsafe = dangerous(job) and d.health < d.maxHealth * RESPOND_HEALTH
+	if job and d.status == "Working" and not relaxFor and not unsafe then
 		LifeService.goTo(vault, d, job, "Working", now, nil)
 		return
 	end
-	local lounge = (job and job.type == "Living" and job) or nearest(vault, d, now, function(r)
-		return r.type == "Living"
+	local lounge = (job and job.type == "Living" and not unsafe and job) or nearest(vault, d, now, function(r)
+		return r.type == "Living" and not dangerous(r)
 	end) or nearest(vault, d, now, function(r)
-		return r.type == "Cafeteria"
-	end) or job or (d.at and vault.data.rooms[d.at])
+		return r.type == "Cafeteria" and not dangerous(r)
+	end) or (not unsafe and job) or (d.at and vault.data.rooms[d.at])
 	if lounge then
-		LifeService.goTo(vault, d, lounge, "Relaxing", now, relaxFor)
+		LifeService.goTo(vault, d, lounge, "Relaxing", now, relaxFor or (if unsafe then 30 else nil))
 	end
+end
+
+-- Pulled out of a fire or a fight: the Medbay if there's a bed, else any safe room for a while.
+local function retreat(vault, d, now: number)
+	if startTreatment(vault, d, now) then
+		return
+	end
+	local here = d.at
+	local safe = nearest(vault, d, now, function(r)
+		return r.id ~= here and not dangerous(r) and r.type ~= "Elevator"
+	end)
+	if safe and LifeService.goTo(vault, d, safe, "Relaxing", now, 30) then
+		return
+	end
+	vault.rt.think[d.id] = now + 4
 end
 
 -- Finishing activities ------------------------------------------------------------------
@@ -269,6 +394,23 @@ local function decide(vault, d: any, now: number)
 	local here = d.at and rooms[d.at]
 	local n = d.needs
 	local act = d.activity
+	-- responders stand down once the emergency is over, or when someone sent them elsewhere
+	if d.respond then
+		local target = rooms[d.respond]
+		if not target or handsWanted(target) == 0 or d.at ~= d.respond then
+			d.respond = nil
+			if act == "Responding" then
+				act = nil
+			end
+		end
+	end
+	-- anyone badly hurt in a fire or a fight pulls out instead of fighting to the death
+	if dangerous(here) and act ~= "Sleeping" and Family.canFight(d) and d.health < d.maxHealth * RETREAT_HEALTH then
+		d.respond = nil
+		LifeService.remember(d, "retreat", "Pulled out of the " .. RoomDefinitions.Types[here.type].name .. " badly hurt", -4, 300, now)
+		retreat(vault, d, now)
+		return
+	end
 	-- emergencies in the room: fighters stay and fight, others keep clear (client huddles them)
 	if here and here.incident and act ~= "Sleeping" and Family.canFight(d) then
 		think[d.id] = now + 4
@@ -403,6 +545,8 @@ local function socialPass(vault, now: number)
 		if p then
 			if p.status == "Dead" then
 				mood -= 12
+			elseif p.status == "Exploring" then
+				mood -= 3 -- out in the wasteland (their stale room must not count as "together")
 			elseif p.activity == "Treatment" or p.health < p.maxHealth * 0.35 then
 				mood -= 6
 			elseif p.at == d.at then
@@ -425,6 +569,20 @@ local function socialPass(vault, now: number)
 	end
 end
 
+-- The partner and family left behind when someone heads into the wasteland, and their relief
+-- when they make it home (an expedition is never free for the people who stay).
+function LifeService.expedition(vault, explorer: any, now: number, home: boolean)
+	for _, o in vault.data.dwellers do
+		if o ~= explorer and Simulation.isInside(o) and (o.partner == explorer.id or Family.related(o, explorer)) then
+			if home then
+				LifeService.remember(o, "away" .. explorer.id, firstName(explorer) .. " made it home", 4, 600, now)
+			else
+				LifeService.remember(o, "away" .. explorer.id, "Worried about " .. firstName(explorer) .. " out in the wasteland", -5, 3600, now)
+			end
+		end
+	end
+end
+
 -- Grief: friends and partners remember a death.
 function LifeService.onDeath(vault, dead: any, now: number)
 	for _, d in vault.data.dwellers do
@@ -444,6 +602,11 @@ function LifeService.tick(vault, dt: number, now: number)
 	vault.rt.think = vault.rt.think or {}
 	vault.rt.use = countUse(vault)
 	local think = vault.rt.think
+	vault.rt.respondAcc = (vault.rt.respondAcc or RESPOND_EVERY) + dt
+	if vault.rt.respondAcc >= RESPOND_EVERY then
+		vault.rt.respondAcc = 0
+		dispatch(vault, now)
+	end
 	local due = {}
 	for id, d in vault.data.dwellers do
 		if not Simulation.isInside(d) then

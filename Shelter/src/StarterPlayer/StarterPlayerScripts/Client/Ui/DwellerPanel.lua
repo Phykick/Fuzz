@@ -109,6 +109,11 @@ local function activityText(d, state): (string, Color3)
 		text = "Being treated in the Medbay"
 	elseif act == "Visiting" then
 		text = "Visiting someone in the Medbay"
+	elseif act == "Responding" then
+		local inc = room and room.incident
+		text = (if inc and inc.kind == "Breakdown" then "Fixing the " elseif inc and inc.kind == "Fire" then "Fighting the fire in the "
+			else "Answering the emergency in the ") .. where
+		return (if moving then "Running to help: " .. string.lower(string.sub(text, 1, 1)) .. string.sub(text, 2) else text), T.accent
 	elseif act == "Relaxing" then
 		text = "Unwinding in the " .. where
 	elseif d.status == "Working" then

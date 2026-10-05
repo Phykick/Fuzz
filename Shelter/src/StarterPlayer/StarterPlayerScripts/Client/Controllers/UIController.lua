@@ -184,6 +184,33 @@ function UIController.refreshAlerts()
 			UIController.openBuild()
 		end
 	end
+	local function focusRoom(id: string)
+		return function()
+			local c = C.VaultRenderer.roomCenter(id)
+			if c then
+				C.CameraController.focus(c, 34)
+			end
+			UIController.selectRoom(id)
+		end
+	end
+	-- emergencies first: every one of them, not just the one the banner shows
+	local raid = state.raid
+	if raid then
+		add(if raid.phase == "door" then "RAID INCOMING" else "RAIDERS INSIDE", "critical", 0, nil)
+	end
+	for id, r in state.rooms do
+		local inc = r.incident
+		if inc then
+			local name = string.upper(RoomDefinitions.Types[r.type].name)
+			if inc.kind == "Fire" then
+				add("FIRE DETECTED - " .. name, "critical", 0.5, focusRoom(id))
+			elseif inc.kind == "Breakdown" then
+				add((if r.type == "Power" then "POWER FAILURE" else "BREAKDOWN - " .. name) .. (if inc.paid then "" else " - REPAIR?"), if inc.paid then "warn" else "critical", 0.6, focusRoom(id))
+			else
+				add("INFESTATION - " .. name, "critical", 0.5, focusRoom(id))
+			end
+		end
+	end
 	if (state.powerFactor or 1) < 0.99 then
 		add(string.format("POWER CRITICAL - %d%% SUPPLY", math.floor((state.powerFactor or 1) * 100)), "critical", 1, focusRoomOf("Power"))
 	end

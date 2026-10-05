@@ -78,7 +78,7 @@ end
 function DwellerService.location(vault, d, now: number): (number, number)
 	local tr = d.travel
 	if tr and now < tr.start + tr.duration then
-		local x, row = Pathing.sample(tr.points, tr.x0, tr.row0, now - tr.start)
+		local x, row = Pathing.sample(tr.points, tr.x0, tr.row0, (now - tr.start) * (tr.rate or 1))
 		return x, math.floor(row + 0.5)
 	end
 	local room = (d.at and vault.data.rooms[d.at]) or (d.roomId and vault.data.rooms[d.roomId])
@@ -123,6 +123,7 @@ function DwellerService.moveTo(vault, d, room, now: number): (boolean, string?)
 	if d.court then
 		S.FamilyService.cancel(vault, d)
 	end
+	d.respond = nil -- the Overseer's call overrides an emergency run
 	local old = removeFromRoom(vault, d)
 	if def.slots > 0 then
 		table.insert(room.assigned, d.id)
@@ -156,6 +157,7 @@ function DwellerService.kill(vault, d, cause: string, message: string?)
 	d.status = "Dead"
 	d.health = 0
 	d.roomId = nil -- the job is free again; the body stays where they fell (d.at)
+	d.respond = nil
 	d.travel = nil
 	d.activity = nil
 	S.LifeService.onDeath(vault, d, S.VaultService.now())

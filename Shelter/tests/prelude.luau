@@ -3,6 +3,7 @@
 -- strict JSON round-trip that rejects what a real DataStore would (NaN/inf, mixed tables...).
 
 local H = {}
+H.realClock = os.clock -- real CPU clock (modules only ever see the virtual one)
 H.errors = {}
 H.warnings = {}
 H.events = {} -- [player] = { {kind, payload}, ... }

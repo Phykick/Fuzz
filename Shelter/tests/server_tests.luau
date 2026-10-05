@@ -582,6 +582,230 @@ T.rename_is_saved = function()
 end
 
 ---------------------------------------------------------------------------------------------
+-- Emergency response (design doc §10 / §23): survivors elsewhere drop what they're doing
+---------------------------------------------------------------------------------------------
+local function responders(v, roomId: string)
+	local list = {}
+	for _, d in v.data.dwellers do
+		if d.respond == roomId then
+			table.insert(list, d)
+		end
+	end
+	return list
+end
+
+T.fire_in_empty_room_draws_responders = function()
+	serverReady()
+	local p, v = joinLoaded(1)
+	local living = roomOf(v, "Living") -- nobody works in the bedrooms
+	for _, d in v.data.dwellers do
+		d.needs = { Hunger = 100, Thirst = 100, Energy = 100 }
+	end
+	check(svc("IncidentService").startFire(v, living, "test"), "fire started")
+	task.wait(4)
+	local sent = responders(v, living.id)
+	check(#sent >= 2, "at least two survivors sent to fight it (" .. #sent .. ")")
+	check(waitFor(function()
+		return living.incident == nil
+	end, 60), "fire put out within a minute (a fire nobody fights burns ~2.5 min and spreads)")
+	task.wait(6)
+	check(#responders(v, living.id) == 0, "responders stand down once it's out")
+	for _, d in sent do
+		check(d.activity ~= "Responding", d.name .. " went back to their routine")
+	end
+	local _ = p
+end
+
+T.paid_repair_brings_an_engineer = function()
+	serverReady()
+	local p, v = joinLoaded(1)
+	local power = roomOf(v, "Power")
+	local sarah = dwellerNamed(v, "Sarah") -- the only generator crew
+	check(invoke(p, "Assign", { dwellerId = sarah.id, roomId = roomOf(v, "Living").id }), "crew moved away")
+	task.wait(15)
+	check(#power.assigned == 0, "generator unstaffed")
+	check(svc("IncidentService").startBreakdown(v, power, "test"), "breakdown")
+	task.wait(6)
+	check(#responders(v, power.id) == 0, "nobody shows up before the Overseer pays for parts")
+	v.data.resources.Materials = 500
+	check(invoke(p, "Repair", { roomId = power.id }), "repair paid")
+	task.wait(4)
+	local sent = responders(v, power.id)
+	check(#sent >= 1, "someone sent to fix it")
+	local best, bestEng = nil, -1
+	for _, d in sent do
+		local eng = shared("Simulation").stat(d, "ENG")
+		if eng > bestEng then
+			best, bestEng = d, eng
+		end
+	end
+	check(waitFor(function()
+		return power.incident == nil
+	end, 120), "generator repaired")
+	local _ = best
+end
+
+T.hurt_responders_pull_back = function()
+	serverReady()
+	local p, v = joinLoaded(1)
+	local living = roomOf(v, "Living")
+	for _, d in v.data.dwellers do
+		d.needs = { Hunger = 100, Thirst = 100, Energy = 100 }
+	end
+	check(svc("IncidentService").startInfestation(v, living, "test", "Roaches"), "infestation started")
+	living.incident.hp *= 50 -- a long fight
+	local first
+	check(waitFor(function()
+		for _, d in v.data.dwellers do
+			if d.respond == living.id and d.at == living.id and (d.arriveAt or 0) <= workspace:GetServerTimeNow() then
+				first = d
+				return true
+			end
+		end
+		return false
+	end, 60), "a responder reached the room")
+	if not first then
+		return
+	end
+	first.health = first.maxHealth * 0.2
+	task.wait(6)
+	check(first.status ~= "Dead", "the wounded responder is still alive")
+	check(first.respond == nil and first.at ~= living.id, "and pulled back instead of fighting to the death")
+	local _ = p
+end
+
+---------------------------------------------------------------------------------------------
+-- Expeditions weigh on the people left behind (design doc §14)
+---------------------------------------------------------------------------------------------
+T.partner_worries_about_explorer = function()
+	serverReady()
+	local p, v = joinLoaded(1)
+	local sarah, james = dwellerNamed(v, "Sarah"), dwellerNamed(v, "James")
+	check(sarah.partner == james.id, "partners")
+	check(invoke(p, "Explore", { dwellerId = james.id }), "James sent out")
+	task.wait(8)
+	local function memory(d, id)
+		for _, m in d.memories or {} do
+			if m.id == id then
+				return m
+			end
+		end
+		return nil
+	end
+	local worry = memory(sarah, "away" .. james.id)
+	check(worry and worry.value < 0, "Sarah worries while James is outside")
+	check((sarah.socialMood or 0) < 0, "and it shows in her mood (" .. tostring(sarah.socialMood) .. ")")
+	check(invoke(p, "Recall", { dwellerId = james.id }), "recalled")
+	check(waitFor(function()
+		return james.status ~= "Exploring"
+	end, 60), "James is back")
+	local relief = memory(sarah, "away" .. james.id)
+	check(relief and relief.value > 0, "relief when he's home")
+end
+
+---------------------------------------------------------------------------------------------
+-- Scale (design doc §38): a big, busy colony must stay cheap on the server
+---------------------------------------------------------------------------------------------
+-- Replace the starter shelter with a full-height one: a central shaft, a 3-module room on either
+-- side of every floor (all level 3), and `pop` survivors with jobs filled first.
+local function bigColony(v, pop: number)
+	local DS = svc("DwellerService")
+	local rooms = {}
+	local n = 0
+	local function add(typeId, col, row, modules)
+		n += 1
+		local id = "b" .. n
+		rooms[id] = { id = id, type = typeId, col = col, row = row, modules = modules, level = if typeId == "Elevator" or typeId == "Entrance" then 1 else 3, assigned = {}, pending = 0 }
+		return rooms[id]
+	end
+	add("Entrance", 9, 0, 1)
+	local cycle = { "Living", "Power", "Water", "Food", "Cafeteria", "Living", "Infirmary", "Storage", "Workshop", "Living" }
+	local k = 0
+	for row = 0, 24 do
+		add("Elevator", 12, row, 1)
+		if row > 0 then
+			k += 1
+			add(cycle[(k - 1) % #cycle + 1], 3, row, 3)
+			k += 1
+			add(cycle[(k - 1) % #cycle + 1], 13, row, 3)
+		else
+			add("Living", 13, row, 3)
+		end
+	end
+	v.data.rooms = rooms
+	v.data.dwellers = {}
+	v.data.exploration = {}
+	for key in v.data.resources do
+		v.data.resources[key] = 2000
+	end
+	local jobs = {}
+	for _, r in rooms do
+		local def = shared("RoomDefinitions").Types[r.type]
+		for _ = 1, def.slots * r.modules do
+			table.insert(jobs, r)
+		end
+	end
+	for i = 1, pop do
+		local d = DS.create(v, { level = 3 })
+		local r = jobs[i]
+		if r then
+			table.insert(r.assigned, d.id)
+			d.roomId, d.at, d.status, d.activity = r.id, r.id, "Working", "Working"
+		end
+	end
+	svc("LifeService").prime(v)
+	v.rt.nextArrival = math.huge
+	v.rt.nextRaid = math.huge
+	return rooms
+end
+
+local function measure(pop: number, seconds: number): number
+	local p, v = joinLoaded(1)
+	bigColony(v, pop)
+	task.wait(5) -- settle: first decisions for everyone
+	local t0 = H.realClock()
+	task.wait(seconds)
+	local cost = (H.realClock() - t0) / seconds * 1000
+	out(string.format("  %d survivors: %.1f ms of server time per second", pop, cost))
+	local _ = p
+	return cost
+end
+
+T.scale_200 = function()
+	serverReady()
+	check(measure(200, 60) < 40, "200 survivors cost under 40 ms per second")
+end
+
+T.scale_500 = function()
+	serverReady()
+	check(measure(500, 60) < 80, "500 survivors cost under 80 ms per second")
+end
+
+T.scale_500_with_emergencies = function()
+	serverReady()
+	local p, v = joinLoaded(1)
+	bigColony(v, 500)
+	task.wait(5)
+	local IS = svc("IncidentService")
+	local n = 0
+	for _, r in v.data.rooms do
+		if n < 3 and r.type ~= "Elevator" and r.type ~= "Entrance" and r.row > 5 then
+			if IS.startFire(v, r, "test") then
+				r.incident.hp *= 20 -- keep them burning for the whole measurement
+				n += 1
+			end
+		end
+	end
+	check(n == 3, "three fires")
+	local t0 = H.realClock()
+	task.wait(60)
+	local cost = (H.realClock() - t0) / 60 * 1000
+	out(string.format("  500 survivors + 3 fires: %.1f ms of server time per second", cost))
+	check(cost < 80, "emergency dispatch stays cheap at 500 survivors")
+	local _ = p
+end
+
+---------------------------------------------------------------------------------------------
 -- Runner
 ---------------------------------------------------------------------------------------------
 T.__run = function(name: string)
