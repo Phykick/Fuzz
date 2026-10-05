@@ -12,15 +12,16 @@ local function check(cond: any, msg: string)
 end
 
 -- Fake engine pieces the controller touches ----------------------------------------------------
-local played = {} -- { cue region start, volume, speed, sound }
+local played = {} -- { id, region start, volume, speed, sound }
 local function fakeSound(n)
 	local props = rawget(n, "_props")
 	props.IsPlaying = false
 	props.Play = function(self)
-		self.IsPlaying = true
-		self.plays = (self.plays or 0) + 1
-		local r = self.PlaybackRegion
-		table.insert(played, { start = r and r.Min, volume = self.Volume, speed = self.PlaybackSpeed, sound = self })
+		local pr = rawget(self, "_props")
+		pr.IsPlaying = true
+		pr.plays += 1
+		local r = pr.PlaybackRegion
+		table.insert(played, { id = pr.SoundId, start = r and r.Min, volume = pr.Volume, speed = pr.PlaybackSpeed, sound = self })
 	end
 	props.Stop = function(self)
 		self.IsPlaying = false
@@ -49,7 +50,17 @@ end
 
 local SoundService = H.newNode("SoundService", "SoundService")
 local ContentProvider = H.newNode("ContentProvider", "ContentProvider")
-rawget(ContentProvider, "_props").PreloadAsync = function() end
+local broken = {} -- asset ids that won't load (private / deleted)
+local preloaded = {}
+rawget(ContentProvider, "_props").PreloadAsync = function(_, list, callback)
+	for _, item in list do
+		local sid = rawget(item, "_props").SoundId
+		table.insert(preloaded, sid)
+		if callback then
+			callback(sid, if broken[sid] then Enum.AssetFetchStatus.Failure else Enum.AssetFetchStatus.Success)
+		end
+	end
+end
 H.services.SoundService = SoundService
 H.services.ContentProvider = ContentProvider
 local RunService = H.services.RunService
@@ -151,21 +162,29 @@ local function lastPlay()
 	return played[#played]
 end
 
-local function regionOf(name)
-	return Atlas[name][1]
-end
-
-local function cueStart(cue)
-	return regionOf(Bank.Cues[cue].region)
-end
-
-local function playedCue(cue, since)
+-- the first played entry since `since` that used this asset id
+local function playedId(sid, since)
 	for i = (since or 0) + 1, #played do
-		if played[i].start == cueStart(cue) then
+		if played[i].id == sid then
 			return played[i]
 		end
 	end
 	return nil
+end
+
+-- a cue played with its first (preferred) public id
+local function playedCue(cue, since)
+	return playedId(Bank.Cues[cue].ids[1], since)
+end
+
+local function countId(sid, since)
+	local n = 0
+	for i = (since or 0) + 1, #played do
+		if played[i].id == sid then
+			n += 1
+		end
+	end
+	return n
 end
 
 local function heartbeat(seconds)
@@ -176,8 +195,8 @@ local function heartbeat(seconds)
 	end
 end
 
-local function boot(atlas: string)
-	Bank.ATLAS_ID = atlas
+local function boot(atlas: string?)
+	Bank.ATLAS_ID = atlas or ""
 	local SC = H.require(H.node("StarterPlayer.StarterPlayerScripts.Client.Controllers.SoundController"))
 	SC.Init(C)
 	SC.Start()
@@ -185,42 +204,27 @@ local function boot(atlas: string)
 end
 
 -- Tests -----------------------------------------------------------------------------------------
-T.silent_until_uploaded = function()
-	boot("")
-	S.Snapshot:Fire(S.state)
-	S.Collected:Fire({ roomId = "2", amount = 5, bolts = 2, tapped = true })
-	Kit.sound("click")
-	heartbeat(1)
-	check(#played == 0, "nothing plays without an uploaded atlas")
-	local warned = false
-	for _, w in H.warnings do
-		if string.find(w, "No audio uploaded yet", 1, true) then
-			warned = true
-		end
-	end
-	check(warned, "Studio gets one hint about the upload")
-	H.warnings = {}
-end
-
-T.events_play_the_right_cues = function()
-	boot("rbxassetid://1")
+T.public_audio_without_uploads = function()
+	boot()
 	local folder = SoundService:FindFirstChild("UH_Sound")
 	check(folder ~= nil, "sound folder created")
-	local count = 0
-	for _ in folder:GetChildren() do
-		count += 1
+	for name, cue in Bank.Cues do
+		check(type(cue.ids) == "table" and #cue.ids > 0, "cue " .. name .. " has public audio")
+		for _, sid in cue.ids do
+			check(string.match(sid, "^rbxassetid://%d+$") ~= nil, name .. ": well-formed id " .. sid)
+		end
 	end
-	check(count == 14 + 5, "14 voices + 5 loops (" .. count .. ")")
+	check(table.find(preloaded, Bank.Cues.death.ids[1]) ~= nil, "candidates are checked before use")
 	S.Snapshot:Fire(S.state)
-	-- tapped collect on screen: full volume collect, then bolts
+	-- tapped collect on screen: full volume, then bolts
 	local mark = #played
 	S.Collected:Fire({ roomId = "2", amount = 5, bolts = 2, tapped = true })
 	task.wait(0.3)
 	local c = playedCue("collect", mark)
-	check(c ~= nil, "collect cue")
+	check(c ~= nil, "collect plays its public sound")
 	check(c and math.abs(c.volume - Bank.Cues.collect.volume) < 1e-6, "full volume on screen")
-	check(playedCue("bolts", mark) ~= nil, "bolts cue follows")
-	-- automatic deposit off screen: silent; on screen: quiet
+	check(playedCue("bolts", mark) ~= nil, "bolts follow")
+	-- automatic deposit off screen: silent
 	mark = #played
 	S.Collected:Fire({ roomId = "3", amount = 5, bolts = 0, tapped = false })
 	task.wait(0.2)
@@ -230,14 +234,20 @@ T.events_play_the_right_cues = function()
 	S.DwellerChanged:Fire({ id = "7", status = "Dead" })
 	task.wait(0.1)
 	check(playedCue("death", mark) ~= nil, "death cue")
-	-- a shotgun blast is pitched down
+	-- each weapon has its own report
 	mark = #played
 	S.state.raid = { phase = "inside", roomId = "1", raiders = {} }
-	S.Combat:Fire({ events = { { a = "r1", t = "7", d = 5, w = "ImprovisedShotgun" }, { a = "7", t = "r1", d = 3, w = "Fists" } } })
-	task.wait(0.3)
-	local g = playedCue("gunshot", mark)
-	check(g and g.speed > 0.6 and g.speed < 0.8, "shotgun pitched low (" .. tostring(g and g.speed) .. ")")
+	S.Combat:Fire({ events = {
+		{ a = "r1", t = "7", d = 5, w = "ImprovisedShotgun" },
+		{ a = "7", t = "r1", d = 3, w = "Fists" },
+		{ a = "r2", t = "7", d = 2, w = "ScrapPistol" },
+	} })
+	task.wait(0.4)
+	local g = playedCue("shotgun", mark)
+	check(g ~= nil, "shotgun uses the shotgun sample")
 	check(playedCue("punch", mark) ~= nil, "fists punch")
+	local pistol = playedCue("gunshot", mark)
+	check(pistol and pistol.speed > 0.95 and pistol.speed < 1.2, "pistol pitched by weapon (" .. tostring(pistol and pistol.speed) .. ")")
 	S.state.raid = nil
 	-- actions
 	mark = #played
@@ -253,7 +263,6 @@ T.events_play_the_right_cues = function()
 	S.ActionDone:Fire("Settings", false, "x", true)
 	task.wait(0.05)
 	check(playedCue("error", mark) == nil, "quiet failures stay quiet")
-	-- incidents
 	mark = #played
 	S.Incident:Fire({ roomId = "3", kind = "Fire" })
 	task.wait(0.05)
@@ -261,8 +270,83 @@ T.events_play_the_right_cues = function()
 	check(f and f.volume >= Bank.Cues.fire_start.volume * 0.6 - 1e-6, "emergencies are heard even off screen")
 end
 
+T.unavailable_audio_falls_back = function()
+	-- collect's first choice was made private: the second one plays
+	broken[Bank.Cues.collect.ids[1]] = true
+	-- every public choice for death is gone: our own atlas (uploaded) takes over
+	for _, sid in Bank.Cues.death.ids do
+		broken[sid] = true
+	end
+	boot("rbxassetid://424242")
+	S.Snapshot:Fire(S.state)
+	local mark = #played
+	S.Collected:Fire({ roomId = "2", amount = 5, bolts = 0, tapped = true })
+	task.wait(0.1)
+	check(playedId(Bank.Cues.collect.ids[1], mark) == nil, "the unavailable sound is skipped")
+	check(playedId(Bank.Cues.collect.ids[2], mark) ~= nil, "the next candidate plays instead")
+	mark = #played
+	S.DwellerChanged:Fire({ id = "7", status = "Dead" })
+	task.wait(0.1)
+	local d = playedId("rbxassetid://424242", mark)
+	check(d ~= nil and d.start == Atlas.death[1], "atlas region used as last resort")
+end
+
+T.silent_and_named_when_nothing_loads = function()
+	for _, sid in Bank.Cues.upgrade.ids do
+		broken[sid] = true
+	end
+	boot()
+	S.Snapshot:Fire(S.state)
+	local mark = #played
+	S.ActionDone:Fire("Upgrade", true, {}, nil)
+	task.wait(0.1)
+	check(#played == mark, "nothing plays")
+	task.wait(16)
+	local warned = false
+	for i = #H.warnings, 1, -1 do
+		local w = H.warnings[i]
+		if string.find(w, "No playable audio for:", 1, true) and string.find(w, "upgrade", 1, true) then
+			warned = true
+			table.remove(H.warnings, i)
+		end
+	end
+	check(warned, "Studio names the cue that needs a new id")
+end
+
+T.long_clips_are_cut = function()
+	boot()
+	S.Snapshot:Fire(S.state)
+	local mark = #played
+	S.ActionDone:Fire("Build", true, {}, nil)
+	task.wait(0.05)
+	local b = playedCue("build", mark)
+	check(b ~= nil and b.sound.IsPlaying, "build clip playing")
+	task.wait(Bank.Cues.build.cut + 0.3)
+	check(b and not b.sound.IsPlaying, "stopped after its cut (" .. Bank.Cues.build.cut .. " s)")
+	check(b and b.sound.Volume < Bank.Cues.build.volume * 0.5, "faded rather than chopped")
+	-- overlapping gunfire uses separate voices
+	mark = #played
+	S.state.raid = { phase = "inside", roomId = "1", raiders = {} }
+	for _ = 1, 3 do
+		S.Combat:Fire({ events = { { a = "r1", t = "7", d = 1, w = "ScrapPistol" } } })
+		task.wait(0.06)
+	end
+	S.state.raid = nil
+	local voices = {}
+	for i = mark + 1, #played do
+		if played[i].id == Bank.Cues.gunshot.ids[1] then
+			voices[played[i].sound] = true
+		end
+	end
+	local n = 0
+	for _ in voices do
+		n += 1
+	end
+	check(n >= 2, "shots overlap on separate voices (" .. n .. ")")
+end
+
 T.ui_clicks_and_panels = function()
-	boot("rbxassetid://1")
+	boot()
 	S.Snapshot:Fire(S.state)
 	local mark = #played
 	Kit.sound("click")
@@ -274,31 +358,37 @@ T.ui_clicks_and_panels = function()
 	Kit.sound("close")
 	Kit.sound("open")
 	task.wait(0.2)
-	check(playedCue("open", mark) ~= nil, "open plays")
-	check(playedCue("close", mark) == nil, "the close that came with it doesn't")
+	-- open and close share a swish; close is the lower-pitched one
+	local swish = Bank.Cues.open.ids[1]
+	local closeSpeed = Bank.Cues.close.speed
+	local o = playedId(swish, mark)
+	check(o ~= nil and math.abs(o.speed - 1) < 0.02, "open plays")
+	check(countId(swish, mark) == 1, "the close that came with it doesn't")
 	mark = #played
 	task.wait(0.3)
 	Kit.sound("close")
 	task.wait(0.2)
-	check(playedCue("close", mark) ~= nil, "a plain close plays")
+	local c = playedId(Bank.Cues.close.ids[1], mark)
+	check(c ~= nil and math.abs(c.speed - closeSpeed) < 0.02, "a plain close plays, lower")
 end
 
 T.loops_follow_the_screen = function()
-	boot("rbxassetid://1")
+	boot()
 	S.Snapshot:Fire(S.state)
 	heartbeat(3)
 	local folder = SoundService:FindFirstChild("UH_Sound")
 	local function loop(name)
 		return folder:FindFirstChild("Loop_" .. name)
 	end
-	check(loop("vault").IsPlaying and loop("vault").Volume > 0.3, "vault ambience playing")
+	check(loop("vault").IsPlaying and loop("vault").Volume > 0.25, "vault ambience playing")
+	check(loop("vault").SoundId == Bank.Loops.vault.ids[1], "ambience is public audio")
 	check(loop("power").Volume > 0.1, "generator on screen hums (" .. loop("power").Volume .. ")")
 	check(loop("water").Volume < 0.05, "off-screen pumps barely audible (" .. loop("water").Volume .. ")")
 	check(not loop("fire").IsPlaying, "no fire, no crackle")
 	-- a fire on screen
 	S.state.rooms["4"].incident = { kind = "Fire", hp = 10, maxHp = 10 }
 	heartbeat(3)
-	check(loop("fire").IsPlaying and loop("fire").Volume > 0.3, "fire crackles (" .. loop("fire").Volume .. ")")
+	check(loop("fire").IsPlaying and loop("fire").Volume > 0.25, "fire crackles (" .. loop("fire").Volume .. ")")
 	S.state.rooms["4"].incident = nil
 	heartbeat(4)
 	check(not loop("fire").IsPlaying, "crackle fades out and pauses")
@@ -313,12 +403,7 @@ T.loops_follow_the_screen = function()
 	S.Raid:Fire(S.state.raid)
 	heartbeat(3)
 	check(loop("alarm").IsPlaying, "alarm sounds")
-	local hits = 0
-	for i = mark + 1, #played do
-		if played[i].start == cueStart("door_hit") then
-			hits += 1
-		end
-	end
+	local hits = countId(Bank.Cues.door_hit.ids[1], mark)
 	check(hits >= 2, "raiders hammer on the door (" .. hits .. ")")
 	mark = #played
 	S.state.raid = { phase = "inside", roomId = "1", raiders = {} }
@@ -332,7 +417,7 @@ T.loops_follow_the_screen = function()
 end
 
 T.settings_toggle_and_save = function()
-	boot("rbxassetid://1")
+	boot()
 	S.state.settings = { sfx = false, music = true }
 	S.Snapshot:Fire(S.state)
 	local ui = SoundService:FindFirstChild("UH_UI")

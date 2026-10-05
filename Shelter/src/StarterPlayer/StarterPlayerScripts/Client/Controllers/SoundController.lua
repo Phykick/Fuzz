@@ -1,9 +1,12 @@
 --!strict
--- Sound: one uploaded audio atlas (SoundBank.ATLAS_ID) played in pieces with PlaybackRegion.
--- One-shots come from a small pool of voices; continuous beds (vault air, generator hum, water
--- pumps, fire, raid alarm) fade with what's on screen, so the shelter sounds like what you look
--- at. Pumps slow down in a brownout. Events come from StateStore; UI clicks through Kit.sound.
--- Two toggles (Sound effects / Ambience) are saved with the shelter (data.settings).
+-- Sound: public Roblox audio for every game event (Creator Store ids in SoundBank, mostly Roblox's
+-- licensed Pro Sound Effects library), so nothing has to be uploaded. On join the client checks
+-- each cue's candidates actually load and settles on the first that does (Roblox can make audio
+-- unavailable); our own generated atlas is an optional last resort. One-shots play from a small
+-- per-cue pool, and long library clips are cut short with a fade. Continuous beds (vault air,
+-- machinery, water, fire, raid alarm) fade with what's on screen, so the shelter sounds like what
+-- you look at; pumps slow down in a brownout. Events come from StateStore, UI clicks through
+-- Kit.sound. Two toggles (Sound effects / Ambience) are saved with the shelter (data.settings).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local SoundService = game:GetService("SoundService")
@@ -19,39 +22,86 @@ local Kit = require(Ui.Kit)
 local SoundController = {}
 local C: any
 
-local VOICES = 14
-local enabled = SoundBank.ATLAS_ID ~= ""
+local POOL = 4 -- voices per cue, so overlapping plays (gunfire, clicks) don't cut each other off
+local FADE = 0.15 -- seconds to fade out a clip that is cut short
 local folder: Folder
 local groups: { [string]: SoundGroup } = {}
-local voices: { Sound } = {}
-local nextVoice = 1
 local lastPlayed: { [string]: number } = {}
-type Loop = { sound: Sound, cue: any, target: number, current: number, speed: number, playing: boolean, started: boolean }
+type Source = { id: string, start: number?, length: number? } -- a public asset, or a region of our atlas
+local sources: { [string]: Source? } = {}
+local pools: { [string]: { list: { Sound }, id: string, nextIdx: number } } = {}
+local playTokens: { [Sound]: number } = {}
+local tokenSeq = 0
+type Loop = { sound: Sound?, cue: any, target: number, current: number, speed: number, playing: boolean, started: boolean }
 local loops: { [string]: Loop } = {}
 local settings = { sfx = true, music = true }
 local statuses: { [string]: string } = {}
 local raidPhase: string? = nil
+local missing: { string } = {}
 
 -- Playback -------------------------------------------------------------------------------------
-local function region(name: string): (number?, number?)
-	local r = (SoundAtlas :: any)[name]
+local function region(name: string?): (number?, number?)
+	local r = name and (SoundAtlas :: any)[name]
 	if not r then
 		return nil
 	end
 	return r[1], r[2]
 end
 
+-- A sound for the cue's current source, from a small pool.
+local function voiceFor(name: string, src: Source): Sound
+	local pool = pools[name]
+	if not pool or pool.id ~= src.id then
+		if pool then
+			for _, old in pool.list do
+				old:Destroy()
+			end
+		end
+		pool = { list = {}, id = src.id, nextIdx = 1 }
+		pools[name] = pool
+	end
+	for _, v in pool.list do
+		if not v.IsPlaying then
+			return v
+		end
+	end
+	if #pool.list < POOL then
+		local v = Instance.new("Sound")
+		v.Name = name
+		v.SoundId = src.id
+		if src.start then
+			v.PlaybackRegionsEnabled = true
+			v.PlaybackRegion = NumberRange.new(src.start, src.start + (src.length :: number))
+		end
+		v.Parent = folder
+		table.insert(pool.list, v)
+		return v
+	end
+	local v = pool.list[pool.nextIdx]
+	pool.nextIdx = pool.nextIdx % #pool.list + 1
+	return v
+end
+
+-- Fade a clip out and stop it, unless it has been restarted meanwhile.
+local function fadeOut(v: Sound, token: number)
+	local v0 = v.Volume
+	for i = 1, 5 do
+		task.wait(FADE / 5)
+		if playTokens[v] ~= token then
+			return
+		end
+		v.Volume = v0 * (1 - i / 5)
+	end
+	if playTokens[v] == token then
+		v:Stop()
+	end
+end
+
 -- Play a cue. gain scales the cue's volume (e.g. by distance); pitch multiplies its speed.
 function SoundController.play(name: string, gain: number?, pitch: number?)
-	if not enabled then
-		return
-	end
 	local cue = (SoundBank.Cues :: any)[name]
-	if not cue then
-		return
-	end
-	local start, length = region(cue.region)
-	if not start then
+	local src = sources[name]
+	if not cue or not src then
 		return
 	end
 	local now = os.clock()
@@ -59,18 +109,66 @@ function SoundController.play(name: string, gain: number?, pitch: number?)
 		return
 	end
 	lastPlayed[name] = now
-	local s = voices[nextVoice]
-	nextVoice = nextVoice % #voices + 1
-	s:Stop()
-	s.SoundGroup = groups[cue.group]
-	s.PlaybackRegion = NumberRange.new(start, start + (length :: number))
-	s.Volume = cue.volume * (gain or 1)
-	s.PlaybackSpeed = (pitch or 1) * (1 + (math.random() * 2 - 1) * (cue.pitch or 0))
-	s:Play()
+	local v = voiceFor(name, src)
+	v:Stop()
+	tokenSeq += 1
+	local token = tokenSeq
+	playTokens[v] = token
+	v.SoundGroup = groups[cue.group]
+	v.Volume = cue.volume * (gain or 1)
+	v.PlaybackSpeed = (cue.speed or 1) * (pitch or 1) * (1 + (math.random() * 2 - 1) * (cue.pitch or 0))
+	v:Play()
+	if cue.cut and not src.start then -- atlas regions are already the right length
+		task.delay(cue.cut, fadeOut, v, token)
+	end
 end
 
 local function play(name: string, gain: number?, pitch: number?)
 	SoundController.play(name, gain, pitch)
+end
+
+-- Does this asset actually load? (private, deleted or moderated audio doesn't)
+local function loads(id: string): boolean
+	local ok = false
+	local probe = Instance.new("Sound")
+	probe.SoundId = id
+	local called = pcall(function()
+		ContentProvider:PreloadAsync({ probe }, function(_, status)
+			ok = status == Enum.AssetFetchStatus.Success
+		end)
+	end)
+	probe:Destroy()
+	return called and ok
+end
+
+local buildLoop: (key: string) -> ()
+
+-- Use the cue's first candidate straight away, then settle on the first one that really loads,
+-- falling back to our atlas (if uploaded) and finally to silence.
+local function resolve(name: string, cue: any, isLoop: boolean)
+	local ids = cue.ids or {}
+	local start, length = region(cue.region)
+	local atlas: Source? = if SoundBank.ATLAS_ID ~= "" and start then { id = SoundBank.ATLAS_ID, start = start, length = length } else nil
+	sources[name] = if ids[1] then { id = ids[1] } else atlas
+	task.spawn(function()
+		local chosen: Source? = nil
+		for _, candidate in ids do
+			if loads(candidate) then
+				chosen = { id = candidate }
+				break
+			end
+		end
+		chosen = chosen or atlas
+		local before = sources[name]
+		sources[name] = chosen
+		if not chosen then
+			table.insert(missing, name)
+		end
+		local changed = (before == nil) ~= (chosen == nil) or (before ~= nil and chosen ~= nil and before.id ~= chosen.id)
+		if isLoop and changed then
+			buildLoop(name)
+		end
+	end)
 end
 
 -- Louder for things on screen, a muffled hint of what's happening elsewhere.
@@ -156,22 +254,34 @@ local function buildToggle()
 end
 
 -- Loops ---------------------------------------------------------------------------------------------
-local function makeLoop(key: string, cue: any)
-	local start, length = region(cue.region)
-	if not start then
+-- (Re)create a bed's Sound for its current source; the Heartbeat loop starts it when needed.
+buildLoop = function(key: string)
+	local l = loops[key]
+	if not l then
 		return
 	end
-	local s = Instance.new("Sound")
-	s.Name = "Loop_" .. key
-	s.SoundId = SoundBank.ATLAS_ID
-	s.PlaybackRegionsEnabled = true
-	s.PlaybackRegion = NumberRange.new(start, start + (length :: number))
-	s.LoopRegion = NumberRange.new(start, start + (length :: number))
-	s.Looped = true
-	s.Volume = 0
-	s.SoundGroup = groups[cue.group]
-	s.Parent = folder
-	loops[key] = { sound = s, cue = cue, target = 0, current = 0, speed = 1, playing = false, started = false }
+	if l.sound then
+		l.sound:Destroy()
+		l.sound = nil
+	end
+	l.playing, l.started = false, false
+	local src = sources[key]
+	if not src then
+		return
+	end
+	local v = Instance.new("Sound")
+	v.Name = "Loop_" .. key
+	v.SoundId = src.id
+	v.Looped = true
+	if src.start then
+		v.PlaybackRegionsEnabled = true
+		v.PlaybackRegion = NumberRange.new(src.start, src.start + (src.length :: number))
+		v.LoopRegion = NumberRange.new(src.start, src.start + (src.length :: number))
+	end
+	v.Volume = 0
+	v.SoundGroup = groups[l.cue.group]
+	v.Parent = folder
+	l.sound = v
 end
 
 local nextDoorHit, nextSqueak = 0, 0
@@ -332,7 +442,8 @@ local function connectEvents()
 				if e.w == "Fists" then
 					play("punch", gain)
 				else
-					play("gunshot", gain, (SoundBank.WeaponPitch :: any)[e.w] or 1)
+					local w = (SoundBank.Weapons :: any)[e.w]
+					play(if w then w.cue else "gunshot", gain, if w then w.speed else 1)
 				end
 			end)
 		end
@@ -390,22 +501,15 @@ function SoundController.Init(controllers)
 		g.Parent = SoundService
 		groups[name] = g
 	end
-	if not enabled then
-		if RunService:IsStudio() then
-			warn("[Sound] No audio uploaded yet: upload Shelter/audio/underhaven_sounds.ogg and set SoundBank.ATLAS_ID (see README).")
-		end
-		return
-	end
-	for i = 1, VOICES do
-		local s = Instance.new("Sound")
-		s.Name = "Voice" .. i
-		s.SoundId = SoundBank.ATLAS_ID
-		s.PlaybackRegionsEnabled = true
-		s.Parent = folder
-		table.insert(voices, s)
+	for key, cue in SoundBank.Loops :: any do
+		loops[key] = { sound = nil, cue = cue, target = 0, current = 0, speed = 1, playing = false, started = false }
 	end
 	for key, cue in SoundBank.Loops :: any do
-		makeLoop(key, cue)
+		resolve(key, cue, true)
+		buildLoop(key)
+	end
+	for name, cue in SoundBank.Cues :: any do
+		resolve(name, cue, false)
 	end
 	-- UI hooks: every button press clicks; panels sound when they open and close
 	local lastOpen = 0
@@ -427,17 +531,17 @@ function SoundController.Init(controllers)
 end
 
 function SoundController.Start()
-	if not enabled then
-		return
-	end
 	buildToggle()
 	applySettings()
 	connectEvents()
-	task.spawn(function()
-		pcall(function()
-			ContentProvider:PreloadAsync({ voices[1] })
+	if RunService:IsStudio() then
+		task.delay(15, function()
+			if #missing > 0 then
+				table.sort(missing)
+				warn("[Sound] No playable audio for: " .. table.concat(missing, ", ") .. " - put another Creator Store audio id first in SoundBank.")
+			end
 		end)
-	end)
+	end
 	local acc = 0
 	RunService.Heartbeat:Connect(function(dt)
 		acc += dt
@@ -448,19 +552,22 @@ function SoundController.Start()
 		local k = math.min(1, dt * 2.5)
 		for _, l in loops do
 			l.current += (l.target - l.current) * k
-			local s = l.sound
-			s.Volume = l.cue.volume * l.current
-			s.PlaybackSpeed = l.speed
+			local v = l.sound
+			if not v then
+				continue
+			end
+			v.Volume = l.cue.volume * l.current
+			v.PlaybackSpeed = l.speed
 			if l.current > 0.003 and not l.playing then
 				if l.started then
-					s:Resume()
+					v:Resume()
 				else
-					s:Play()
+					v:Play()
 					l.started = true
 				end
 				l.playing = true
 			elseif l.target == 0 and l.current <= 0.003 and l.playing then
-				s:Pause()
+				v:Pause()
 				l.playing = false
 			end
 		end

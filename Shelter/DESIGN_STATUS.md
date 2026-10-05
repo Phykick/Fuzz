@@ -45,7 +45,7 @@ Status per section of the "Survival + Life Sim + Colony Management" brief. **Don
 | 27 | Long-term progression | Partial | Early game plays well. Mid and late game content (districts, research) is missing. |
 | 28 | Multiplayer-ready | Done (architecture) | One persistent colony per player, server authoritative, clients send intents only. |
 | 29–30 | Visuals, characters | Done | Custom Blender meshes, profession outfits. Not re-checked visually here; this environment can't run Studio. |
-| — | Sound | Done (needs one upload) | 34 original sounds in one audio file (`tools/make_sounds.py`). Ambient loops follow the camera, pumps slow in brownouts, raids sound an alarm. Effects and ambience toggles are saved per player. Silent until `audio/underhaven_sounds.ogg` is uploaded and its id set in `SoundBank` (see README). |
+| — | Sound | Done | Public Creator Store audio for every event (mostly Roblox's licensed Pro Sound Effects library), no uploads needed. Each sound is checked to load at runtime, with backup IDs. Ambient loops follow the camera, water slows in brownouts, raids sound an air-raid siren. Effects and ambience toggles are saved per player. |
 | 31–34 | Camera, HUD, alerts, visible simulation | Done | **New:** every fire, infestation, breakdown and raid shows in the alert row; responders run to emergencies with a bark. |
 | 35 | Chain reactions | Partial | Power → water → thirst → mood → output works. Sickness is the missing link to "Medbay overloaded". |
 | 38 | Performance | Done (server) | Decisions are staggered and the client uses LOD. Measured server cost per simulated second: 2 ms at 200 survivors, 5 ms at 500, 5.5 ms at 500 with three fires (`tests/run.py scale_*`). Client cost at 500 characters isn't measured. |

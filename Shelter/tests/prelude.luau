@@ -313,6 +313,10 @@ function Node.GetChildren(self)
 	end
 	return out
 end
+function Node.Destroy(self)
+	self.Parent = nil
+	rawget(self, "_props").__destroyed = true
+end
 function Node.SetAttribute(self, k, v)
 	rawget(self, "_props")["@" .. k] = v
 end
