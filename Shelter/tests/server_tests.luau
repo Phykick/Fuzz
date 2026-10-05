@@ -581,6 +581,23 @@ T.rename_is_saved = function()
 	check(v.rt.dirty, "rename marks the shelter for saving")
 end
 
+T.audio_volumes_saved = function()
+	serverReady()
+	local p, v = joinLoaded(1)
+	local SS = H.services.SoundService
+	check(SS:FindFirstChild("Master") and SS:FindFirstChild("SFX") and SS:FindFirstChild("Voice"), "SoundGroups built at server start")
+	check(H.node("ReplicatedStorage.Audio"):GetAttribute("Built") == true, "audio library built for the clients")
+	check(invoke(p, "Settings", { volumes = { SFX = 0.33, Master = 2, Music = -1, Bogus = 0.5 } }), "volumes accepted")
+	local vols = v.data.settings.volumes
+	check(vols.SFX == 0.35 and vols.Master == 1 and vols.Music == 0 and vols.Bogus == nil, "clamped, rounded to 5%, unknown keys ignored")
+	check(not invoke(p, "Settings", { volumes = { SFX = 0 / 0 } }), "NaN rejected")
+	check(v.data.settings.volumes.SFX == 0.35, "a bad value doesn't overwrite")
+	check(invoke(p, "Settings", { volumes = { UI = 0.5 } }), "one slider at a time")
+	check(v.data.settings.volumes.SFX == 0.35 and v.data.settings.volumes.UI == 0.5, "other sliders kept")
+	local copy = H.jsonCopy(v.data)
+	check(copy.settings.volumes.SFX == 0.35, "volumes survive a save")
+end
+
 ---------------------------------------------------------------------------------------------
 -- Emergency response (design doc §10 / §23): survivors elsewhere drop what they're doing
 ---------------------------------------------------------------------------------------------

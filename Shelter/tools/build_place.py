@@ -5,10 +5,10 @@
 
 Every script under src/ (ReplicatedStorage, ServerScriptService, StarterPlayer) replaces the
 Source of the instance at the same path. A .lua file with no instance at its path becomes a new
-ModuleScript under the (existing) parent folder, with its other properties copied from an
-existing ModuleScript (fresh UniqueId and ScriptGuid). Only the ModuleScript INST chunk, the
-script PROP chunks and the PRNT chunk are re-encoded; every other chunk is copied byte for byte.
-The result is re-read and checked.
+ModuleScript, and any folder on its path that doesn't exist yet becomes a new Folder; their other
+properties are copied from an existing instance of the same class (fresh UniqueId and ScriptGuid).
+Only the INST/PROP chunks of those classes, the script Source chunks and the PRNT chunk are
+re-encoded; every other chunk is copied byte for byte. The result is re-read and checked.
 """
 import os
 import struct
@@ -26,10 +26,11 @@ SRC = os.path.join(HERE, '..', 'src')
 SCRIPT_CLASSES = {'Script': '.server.lua', 'LocalScript': '.client.lua', 'ModuleScript': '.lua'}
 ROOTS = ('ReplicatedStorage', 'ServerScriptService', 'StarterPlayer')
 
-# ModuleScript property encodings we know how to extend: 'str' = length-prefixed sequential,
-# 'bool' = one byte each, ('il', w) = byte-interleaved fixed width w.
-LAYOUT = {0x01: 'str', 0x02: 'bool', 0x03: ('il', 4), 0x12: ('il', 4), 0x1B: ('il', 8), 0x1C: ('il', 4),
+# Property encodings we know how to extend: 'str' = length-prefixed sequential, 'bool' = one byte
+# each, ('il', w) = byte-interleaved fixed width w, 'c3' = Color3 (three interleaved float arrays).
+LAYOUT = {0x01: 'str', 0x02: 'bool', 0x03: ('il', 4), 0x0C: 'c3', 0x12: ('il', 4), 0x1B: ('il', 8), 0x1C: ('il', 4),
           0x1F: ('il', 16), 0x21: ('il', 8)}
+NEW_CLASSES = ('Folder', 'ModuleScript')
 
 
 def src_files():
@@ -115,22 +116,33 @@ def build(src_path, out_path):
     for ref, i in inst.items():
         by_path.setdefault(path(inst, i), []).append(ref)
 
-    # replacements for existing scripts, and new ModuleScripts to insert
-    new_src, new_mods = {}, []
+    # replacements for existing scripts, and new Folders / ModuleScripts to insert
+    new_src, new_mods, new_dirs = {}, [], {}
     for p, (cls, src) in sorted(files.items()):
         refs = [r for r in by_path.get(p, []) if inst[r]['class'] in SCRIPT_CLASSES]
         if refs:
             new_src[refs[0]] = src
             continue
-        parent = by_path.get(p.rsplit('.', 1)[0])
-        if cls != 'ModuleScript' or not parent:
-            raise SystemExit('cannot add %s (%s): only ModuleScripts under an existing parent' % (p, cls))
-        new_mods.append({'path': p, 'name': p.rsplit('.', 1)[1], 'parent': parent[0], 'source': src})
+        if cls != 'ModuleScript':
+            raise SystemExit('cannot add %s (%s): only new ModuleScripts are supported' % (p, cls))
+        up = p.rsplit('.', 1)[0]
+        while up not in by_path and up not in new_dirs:
+            if '.' not in up:
+                raise SystemExit('cannot add %s: no root %s' % (p, up))
+            new_dirs[up] = {'path': up, 'name': up.rsplit('.', 1)[1], 'class': 'Folder'}
+            up = up.rsplit('.', 1)[0]
+        new_mods.append({'path': p, 'name': p.rsplit('.', 1)[1], 'class': 'ModuleScript', 'source': src})
+    new_insts = sorted(new_dirs.values(), key=lambda d: d['path'].count('.')) + new_mods
     next_ref = max(inst) + 1
-    for m in new_mods:
+    for m in new_insts:
         m['ref'] = next_ref
         next_ref += 1
+    for m in new_insts:
+        up = m['path'].rsplit('.', 1)[0]
+        m['parent'] = new_dirs[up]['ref'] if up in new_dirs else by_path[up][0]
+    for m in new_mods:
         new_src[m['ref']] = m['source']
+    adding = {c: [m for m in new_insts if m['class'] == c] for c in NEW_CLASSES}
 
     # UniqueIds are unique place-wide: new ones continue after the highest index in use
     class_refs, uid_index = {}, 0
@@ -151,18 +163,18 @@ def build(src_path, out_path):
                     uid_index = max(uid_index, int.from_bytes(v[:4], 'big'))
 
     out = bytearray(data[:32])
-    if new_mods:
+    if new_insts:
         classes, count = struct.unpack_from('<ii', data, 16)
-        struct.pack_into('<ii', out, 16, classes, count + len(new_mods))
+        struct.pack_into('<ii', out, 16, classes, count + len(new_insts))
     changed = 0
     for (name, clen, ulen, reserved, raw, whole), body in parsed:
         if name == b'INST':
             cid, nlen = struct.unpack_from('<II', body, 0)
             cname, refs = class_refs[cid]
-            if cname == 'ModuleScript' and new_mods:
-                refs = refs + [m['ref'] for m in new_mods]
+            if adding.get(cname):
+                refs = refs + [m['ref'] for m in adding[cname]]
                 head = bytearray(body[:9 + nlen])
-                assert body[8 + nlen] == 0, 'ModuleScript is not expected to be a service'
+                assert body[8 + nlen] == 0, '%s is not expected to be a service' % cname
                 out += pack(name, head + struct.pack('<I', len(refs)) + encode_refs(refs))
                 continue
             out += whole
@@ -171,7 +183,7 @@ def build(src_path, out_path):
             prop = body[8:8 + nlen].decode()
             t = body[8 + nlen]
             cname, refs = class_refs[cid]
-            extend = cname == 'ModuleScript' and new_mods
+            extend = adding.get(cname)
             if not (extend or (prop == 'Source' and cname in SCRIPT_CLASSES)):
                 out += whole
                 continue
@@ -190,6 +202,10 @@ def build(src_path, out_path):
             elif layout == 'bool':
                 assert len(payload) == n
                 values = [payload[i:i + 1] for i in range(n)]
+            elif layout == 'c3':
+                assert len(payload) == n * 12, 'unexpected size for %s.%s' % (cname, prop)
+                blocks = [deinterleave(payload[k * 4 * n:(k + 1) * 4 * n], n, 4) for k in range(3)]
+                values = [blocks[0][i] + blocks[1][i] + blocks[2][i] for i in range(n)]
             else:
                 w = layout[1]
                 assert len(payload) == n * w, 'unexpected size for %s.%s' % (cname, prop)
@@ -202,7 +218,7 @@ def build(src_path, out_path):
                         changed += 1
             if extend:
                 template = values[0]
-                for m in new_mods:
+                for m in extend:
                     if prop == 'Name':
                         v = m['name'].encode()
                     elif prop == 'Source':
@@ -220,26 +236,28 @@ def build(src_path, out_path):
                 enc = b''.join(struct.pack('<I', len(v)) + v for v in values)
             elif layout == 'bool':
                 enc = b''.join(values)
+            elif layout == 'c3':
+                enc = b''.join(interleave([v[k * 4:(k + 1) * 4] for v in values], 4) for k in range(3))
             else:
                 enc = interleave(values, layout[1])
             out += pack(name, body[:9 + nlen] + enc)
-        elif name == b'PRNT' and new_mods:
+        elif name == b'PRNT' and new_insts:
             n = struct.unpack_from('<I', body, 1)[0]
             kids = decode_refs(body[5:5 + 4 * n], n)
             parents = decode_refs(body[5 + 4 * n:5 + 8 * n], n)
-            kids += [m['ref'] for m in new_mods]
-            parents += [m['parent'] for m in new_mods]
+            kids += [m['ref'] for m in new_insts]
+            parents += [m['parent'] for m in new_insts]
             out += pack(name, body[:1] + struct.pack('<I', len(kids)) + encode_refs(kids) + encode_refs(parents))
         else:
             out += whole
     with open(out_path, 'wb') as f:
         f.write(out)
-    return changed, new_src, new_mods
+    return changed, new_src, new_insts
 
 
-def verify(orig_path, out_path, new_src, new_mods):
+def verify(orig_path, out_path, new_src, new_insts):
     a, b = load(orig_path), load(out_path)
-    added = {m['ref'] for m in new_mods}
+    added = {m['ref'] for m in new_insts}
     assert set(b) == set(a) | added, 'instance set changed'
     for ref in a:
         pa, pb = a[ref]['props'], b[ref]['props']
@@ -249,16 +267,17 @@ def verify(orig_path, out_path, new_src, new_mods):
                 assert pb[k] == new_src[ref], 'Source mismatch for ' + path(b, b[ref])
             else:
                 assert pa[k] == pb.get(k), 'property %s changed on %s' % (k, path(a, a[ref]))
-    for m in new_mods:
+    for m in new_insts:
         i = b[m['ref']]
-        assert i['class'] == 'ModuleScript' and path(b, i) == m['path'], m['path']
-        assert i['props']['Source'] == m['source'], m['path']
+        assert i['class'] == m['class'] and path(b, i) == m['path'], m['path']
+        if m['class'] == 'ModuleScript':
+            assert i['props']['Source'] == m['source'], m['path']
 
 
 if __name__ == '__main__':
     src_path, out_path = sys.argv[1], sys.argv[2]
-    changed, new_src, new_mods = build(src_path, out_path)
-    verify(src_path, out_path, new_src, new_mods)
+    changed, new_src, new_insts = build(src_path, out_path)
+    verify(src_path, out_path, new_src, new_insts)
     print('%d script(s) updated (%d new: %s), %d tracked; wrote %s (%d bytes); verified' % (
-        changed, len(new_mods), ', '.join(m['path'] for m in new_mods) or '-', len(new_src), out_path,
-        os.path.getsize(out_path)))
+        changed, len(new_insts), ', '.join('%s (%s)' % (m['path'], m['class']) for m in new_insts) or '-',
+        len(new_src), out_path, os.path.getsize(out_path)))

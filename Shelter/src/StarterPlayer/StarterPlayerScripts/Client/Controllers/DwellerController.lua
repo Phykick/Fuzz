@@ -82,6 +82,7 @@ type V = {
 	goalFloor: number?, -- floor height while walking to a raised spot (top bunk, bed)
 	eyesClosed: boolean,
 	zAcc: number,
+	heardAction: string?, -- last activity the AudioManager was told about
 }
 
 local visuals: { [string]: V } = {}
@@ -237,9 +238,22 @@ local function createVisual(id: string, data: any, raider: boolean): V
 		goalFloor = nil,
 		eyesClosed = false,
 		zAcc = 0,
+		heardAction = nil,
 	}
 	v.anim:setParam("weapon", data.weapon)
 	v.anim:setParam("scale", handle.scale)
+	v.anim.onFootfall = function(running: boolean)
+		local A = C.AudioManager
+		if not A or v.dead then
+			return
+		end
+		-- surface from the room they're standing in (unknown while on the move between rooms)
+		local tr = v.data.travel
+		local moving = tr ~= nil and now() < tr.start + tr.duration
+		local here = v.data.at or v.data.roomId
+		local room = if moving or v.raider or not here then nil else C.StateStore.state.rooms[here]
+		A:Footstep(v.pos, running, room and room.type, v.id == selectedId)
+	end
 	CharacterFactory.setWeaponVisible(handle, raider)
 	makeNameTag(v)
 	visuals[id] = v
@@ -538,6 +552,13 @@ local function stepDweller(v: V, dt: number, t: number, serverNow: number)
 	end
 	anim:setParam("speed", 1)
 	anim:play(v.action)
+	if v.heardAction ~= v.action then
+		v.heardAction = v.action
+		local A = C.AudioManager
+		if A then
+			A:Interaction(v.action, v.pos, v.id)
+		end
+	end
 	-- sleepers close their eyes
 	local asleep = v.action == "Sleep"
 	if asleep ~= v.eyesClosed then

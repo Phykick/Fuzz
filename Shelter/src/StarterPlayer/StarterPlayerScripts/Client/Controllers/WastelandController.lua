@@ -307,6 +307,9 @@ local function step(dt: number)
 			v.phase = "act"
 			v.t = 0
 			encounter = v
+			if C.AudioManager then
+				C.AudioManager:Encounter(v.entry.k, heroPos())
+			end
 		end
 		if v.phase == "act" then
 			v.t += dt
@@ -317,6 +320,10 @@ local function step(dt: number)
 				CharacterFactory.setWeaponVisible(h.handle, combat)
 				if combat and math.random() < dt * 3 then
 					h.anim:kick()
+					if C.AudioManager then
+						local d = C.StateStore.state.dwellers[h.id]
+						C.AudioManager:Shot(d and d.weapon or "Fists", heroPos())
+					end
 					local target = v.actors[1]
 					local tp = if target then Vector3.new(wrapX(target.vx), 2.8, target.z) else Vector3.new(wrapX(v.vx), 5, -6)
 					C.EffectsController.tracer(h.handle.root.Position + Vector3.new(dir * 1.3, 1.2, 0), tp, nil)
@@ -327,6 +334,9 @@ local function step(dt: number)
 					a.anim:play(if combat then "Shoot" else "Talk")
 					if combat and not a.dead and math.random() < dt * 1.6 then
 						a.anim:kick()
+						if C.AudioManager then
+							C.AudioManager:Shot("PipeRifle", a.handle.root.Position)
+						end
 						C.EffectsController.tracer(a.handle.root.Position + Vector3.new(-dir * 1.3, 1.2, 0), heroPos() + Vector3.new(0, 3, 0), Color3.fromRGB(255, 120, 90))
 						if h then
 							h.anim:flinch()
@@ -350,6 +360,9 @@ local function step(dt: number)
 				v.phase = "done"
 				encounter = nil
 				floatLoot(v.entry)
+				if C.AudioManager and next(v.entry.loot or {}) ~= nil then
+					C.AudioManager:Play("UIReward", { gain = 0.8 })
+				end
 				if h then
 					CharacterFactory.setWeaponVisible(h.handle, false)
 				end

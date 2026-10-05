@@ -23,7 +23,7 @@ StateStore.state = {
 	exploration = {} :: { [string]: any },
 	flow = {} :: { [string]: { prod: number, use: number } }, -- per resource, per minute
 	powerFactor = 1, -- share of power demand the grid meets (brownout below 1)
-	settings = { sfx = true, music = true } :: any, -- saved with the shelter
+	settings = {} :: any, -- saved with the shelter (audio volumes)
 }
 
 StateStore.Snapshot = Signal.new()
@@ -50,7 +50,7 @@ StateStore.Inventory = Signal.new()
 StateStore.DwellerStats = Signal.new()
 StateStore.ExploreChanged = Signal.new()
 StateStore.ExploreEnded = Signal.new()
-StateStore.ActionDone = Signal.new() -- (name, ok, result | reason, quiet) after every server action
+StateStore.ActionDone = Signal.new() -- (name, ok, result | reason, quiet, payload) after every server action
 
 local actionRemote: RemoteFunction
 
@@ -65,17 +65,17 @@ function StateStore.action(name: string, payload: any?, quiet: boolean?): (boole
 	end)
 	if not ok or type(res) ~= "table" then
 		StateStore.Toast:Fire({ text = "Connection hiccup - try again", tone = "bad" })
-		StateStore.ActionDone:Fire(name, false, "network", quiet)
+		StateStore.ActionDone:Fire(name, false, "network", quiet, payload)
 		return false, "network"
 	end
 	if not res.ok then
 		if not quiet then
 			StateStore.Toast:Fire({ text = tostring(res.reason), tone = "warn" })
 		end
-		StateStore.ActionDone:Fire(name, false, res.reason, quiet)
+		StateStore.ActionDone:Fire(name, false, res.reason, quiet, payload)
 		return false, res.reason
 	end
-	StateStore.ActionDone:Fire(name, true, res.result, quiet)
+	StateStore.ActionDone:Fire(name, true, res.result, quiet, payload)
 	return true, res.result
 end
 

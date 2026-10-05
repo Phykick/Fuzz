@@ -416,8 +416,8 @@ function DwellerPanel.refresh()
 end
 
 function DwellerPanel.open(id: string)
-	if not sheet.Visible then
-		Kit.sound("open")
+	if not sheet.Visible or dwellerId ~= id then
+		Kit.sound("UISelect")
 	end
 	dwellerId = id
 	buttonsKey = ""
@@ -430,9 +430,6 @@ function DwellerPanel.open(id: string)
 end
 
 function DwellerPanel.close()
-	if sheet.Visible then
-		Kit.sound("close")
-	end
 	dwellerId = nil
 	sheet.Visible = false
 	vp:ClearAllChildren()

@@ -306,8 +306,8 @@ function RoomPanel.refresh()
 end
 
 function RoomPanel.open(id: string)
-	if not sheet.Visible then
-		Kit.sound("open")
+	if not sheet.Visible or roomId ~= id then
+		Kit.sound("UISelect")
 	end
 	roomId = id
 	lastKey = ""
@@ -318,9 +318,6 @@ function RoomPanel.open(id: string)
 end
 
 function RoomPanel.close()
-	if sheet.Visible then
-		Kit.sound("close")
-	end
 	roomId = nil
 	sheet.Visible = false
 end

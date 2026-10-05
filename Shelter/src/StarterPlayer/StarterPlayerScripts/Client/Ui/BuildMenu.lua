@@ -85,9 +85,6 @@ function BuildMenu.refresh()
 end
 
 function BuildMenu.open()
-	if not isOpen then
-		Kit.sound("open")
-	end
 	isOpen = true
 	sheet.Visible = true
 	BuildMenu.refresh()
@@ -96,9 +93,6 @@ function BuildMenu.open()
 end
 
 function BuildMenu.close()
-	if isOpen then
-		Kit.sound("close")
-	end
 	isOpen = false
 	sheet.Visible = false
 end

@@ -16,7 +16,8 @@ local ORDER = {
 	"WastelandController",
 	"BuildController",
 	"UIController",
-	"SoundController",
+	"AudioManager",
+	"AudioDebug",
 }
 
 pcall(function()

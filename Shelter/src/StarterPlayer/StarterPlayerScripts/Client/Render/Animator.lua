@@ -87,11 +87,12 @@ local function gait(t: number, p: Params, freq: number, amp: number, lean: numbe
 	}
 end
 
+local GAIT_HZ = { Walk = 1.95, Run = 2.8 } -- gait cycles per second at speed 1
 Anims.Walk = function(t, p)
-	return gait(t, p, 1.95 * (p.speed or 1), 0.5, -0.07, 0.5, 0.28)
+	return gait(t, p, GAIT_HZ.Walk * (p.speed or 1), 0.5, -0.07, 0.5, 0.28)
 end
 Anims.Run = function(t, p)
-	return gait(t, p, 2.8 * (p.speed or 1), 0.72, -0.24, 0.85, 1.25)
+	return gait(t, p, GAIT_HZ.Run * (p.speed or 1), 0.72, -0.24, 0.85, 1.25)
 end
 Anims.Panic = function(t, p)
 	local pose = gait(t, p, 3.0, 0.7, -0.12, 0.2, 0.4)
@@ -440,6 +441,8 @@ export type AnimState = {
 	last: Pose,
 	hurt: number,
 	recoil: number,
+	onFootfall: ((running: boolean) -> ())?, -- set by whoever wants footstep sounds
+	footIdx: number?,
 }
 
 function Animator.new(motors: { [string]: Motor6D }, seed: number)
@@ -454,6 +457,8 @@ function Animator.new(motors: { [string]: Motor6D }, seed: number)
 		last = {} :: Pose,
 		hurt = 0,
 		recoil = 0,
+		onFootfall = nil :: ((running: boolean) -> ())?,
+		footIdx = nil :: number?,
 	}, Animator)
 	return self
 end
@@ -486,6 +491,17 @@ end
 function Animator:step(dt: number)
 	self.t += dt
 	local pose = Anims[self.name](self.t, self.params)
+	-- footfalls: a foot lands twice per gait cycle, when its hip swing peaks forward
+	local hz = GAIT_HZ[self.name]
+	if hz and self.onFootfall then
+		local k = math.floor(2 * self.t * hz * (self.params.speed or 1) - 0.5)
+		if self.footIdx and k ~= self.footIdx and self.blend >= 0.5 then
+			self.onFootfall(self.name == "Run")
+		end
+		self.footIdx = k
+	else
+		self.footIdx = nil
+	end
 	if self.blend < 1 then
 		self.blend = min(1, self.blend + dt / self.blendTime)
 		local a = smooth(self.blend)

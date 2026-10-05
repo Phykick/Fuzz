@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Simulation = require(ReplicatedStorage.Shared.Simulation)
 local Difficulty = require(ReplicatedStorage.Shared.Difficulty)
+local AudioConfig = require(ReplicatedStorage:WaitForChild("Audio"):WaitForChild("AudioConfig"))
 
 local VaultService = {}
 local S: any
@@ -67,7 +68,7 @@ local function template()
 		counters = { room = 0, dweller = 0, item = 0 },
 		progression = { stats = { built = 0, collected = 0, fires = 0, raids = 0, arrivals = 0 }, objectives = {} },
 		exploration = {},
-		settings = { sfx = true, music = true },
+		settings = { volumes = {} },
 	}
 end
 VaultService.template = template
@@ -346,7 +347,8 @@ end
 
 function VaultService.Init(services)
 	S = services
-	-- the player's sound toggles (sfx: effects + interface, music: ambience), saved with the shelter
+	-- the player's audio volumes (Master, Music, SFX, Ambient, UI: 0..1), saved with the shelter.
+	-- (Older saves have sfx/music on-off switches instead; the client still reads those.)
 	S.NetService.handle("Settings", function(player, p)
 		local vault = VaultService.get(player)
 		if not vault then
@@ -361,6 +363,16 @@ function VaultService.Init(services)
 			if type(p[key]) == "boolean" then
 				st[key] = p[key]
 			end
+		end
+		if type(p.volumes) == "table" then
+			local vols = if type(st.volumes) == "table" then st.volumes else {}
+			for _, key in AudioConfig.PlayerVolumes do
+				local v = p.volumes[key]
+				if type(v) == "number" and v == v and math.abs(v) ~= math.huge then
+					vols[key] = math.floor(math.clamp(v, 0, 1) * 20 + 0.5) / 20
+				end
+			end
+			st.volumes = vols
 		end
 		VaultService.dirty(vault)
 		return true, st

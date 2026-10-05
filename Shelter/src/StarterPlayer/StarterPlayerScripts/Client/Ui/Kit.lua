@@ -174,11 +174,11 @@ function Kit.icon(props: { [string]: any }): ImageLabel
 	})
 end
 
--- Sound hook: SoundController points this at its player ("click", "open", "close").
+-- Sound hook: AudioManager points this at its player (cue names from AudioConfig.Sounds).
 Kit.sound = function(_cue: string) end
 
 local function press(btn: GuiObject)
-	Kit.sound("click")
+	Kit.sound("UIClick")
 	local s = btn:FindFirstChildOfClass("UIScale") or Kit.new("UIScale", { Parent = btn })
 	s.Scale = 0.92
 	TweenService:Create(s, TweenInfo.new(0.22, Enum.EasingStyle.Back, Enum.EasingDirection.Out), { Scale = 1 }):Play()

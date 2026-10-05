@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the headless server tests.
+"""Run the headless tests (server, and the client AudioManager).
 
 Bundles the shared + server modules from ../src with tests/prelude.luau (fake Roblox APIs) and
 tests/server_tests.luau into one Luau file per test, runs each in its own `luau` process (a fresh
@@ -22,7 +22,7 @@ GLOBALS = ['game', 'workspace', 'task', 'os', 'warn', 'print', 'Random', 'Instan
 # test file -> which source roots get bundled (client modules are only loaded when required)
 SUITES = {
     'server_tests.luau': ['ReplicatedStorage', 'ServerScriptService'],
-    'client_sound_tests.luau': ['ReplicatedStorage', 'StarterPlayer'],
+    'client_audio_tests.luau': ['ReplicatedStorage', 'StarterPlayer'],
 }
 
 

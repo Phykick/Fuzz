@@ -32,7 +32,7 @@ type Visual = {
 
 local visuals: { [string]: Visual } = {}
 local rockTiles: { [string]: Model } = {}
-local cars: { [string]: { model: Model, col: number, y: number, target: number } } = {}
+local cars: { [string]: { model: Model, col: number, y: number, target: number, moving: boolean } } = {}
 local world: Folder
 local roomsFolder: Folder
 local rockFolder: Folder
@@ -130,7 +130,7 @@ local function rebuildCars()
 			local y = -rows[1] * ROW + Config.FLOOR_Y
 			local m = MeshFactory.spawn("ELEV_CAR", CFrame.new(col * UNIT + UNIT / 2, y, 0), Theme.room("Elevator"), world)
 			m.Name = "ElevatorCar_" .. col
-			cars[k] = { model = m, col = col, y = y, target = y }
+			cars[k] = { model = m, col = col, y = y, target = y, moving = false }
 		end
 	end
 	for k, car in cars do
@@ -278,6 +278,9 @@ function VaultRenderer.setDoorOpen(open: boolean)
 	doorOpen = open
 	local base = doorModel:GetAttribute("BaseCFrame") :: CFrame
 	local model = doorModel :: Model
+	if C.AudioManager then
+		C.AudioManager:Door("BlastDoor", open, base.Position, "heavy")
+	end
 	local v = Instance.new("NumberValue")
 	v.Value = if open then 0 else 1
 	v.Changed:Connect(function(a)
@@ -351,12 +354,18 @@ function VaultRenderer.Start()
 	local acc, lightAcc = 0, 0
 	RunService.RenderStepped:Connect(function(dt)
 		local t = os.clock()
-		-- elevator cars glide to their targets
-		for _, car in cars do
+		-- elevator cars glide to their targets (and tell the AudioManager when they start and stop)
+		for k, car in cars do
+			local moving = math.abs(car.y - car.target) > 0.05
 			if math.abs(car.y - car.target) > 0.01 then
 				car.y += (car.target - car.y) * math.min(1, dt * 6)
 				car.model:PivotTo(CFrame.new(car.col * UNIT + UNIT / 2, car.y, 0))
 			end
+			if C.AudioManager and (moving or car.moving) then
+				local pos = Vector3.new(car.col * UNIT + UNIT / 2, car.y + 2, 0)
+				C.AudioManager:Elevator(if moving == car.moving then "move" elseif moving then "depart" else "arrive", pos, k)
+			end
+			car.moving = moving
 		end
 		acc += dt
 		lightAcc += dt

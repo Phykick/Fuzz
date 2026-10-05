@@ -175,11 +175,32 @@ function Random:NextInteger(a, b)
 end
 H.Random = Random
 
-local Vector3 = {
-	new = function(x, y, z)
-		return { X = x or 0, Y = y or 0, Z = z or 0 }
-	end,
-}
+local Vector3 = {}
+local V3 = {}
+V3.__index = function(v, k)
+	if k == "Magnitude" then
+		return math.sqrt(v.X * v.X + v.Y * v.Y + v.Z * v.Z)
+	end
+	return nil
+end
+V3.__add = function(a, b)
+	return Vector3.new(a.X + b.X, a.Y + b.Y, a.Z + b.Z)
+end
+V3.__sub = function(a, b)
+	return Vector3.new(a.X - b.X, a.Y - b.Y, a.Z - b.Z)
+end
+V3.__mul = function(a, b)
+	if type(a) == "number" then
+		return Vector3.new(a * b.X, a * b.Y, a * b.Z)
+	end
+	return Vector3.new(a.X * b, a.Y * b, a.Z * b)
+end
+V3.__eq = function(a, b)
+	return a.X == b.X and a.Y == b.Y and a.Z == b.Z
+end
+function Vector3.new(x, y, z)
+	return setmetatable({ X = x or 0, Y = y or 0, Z = z or 0 }, V3)
+end
 Vector3.zero = Vector3.new()
 local CFrame = {
 	new = function(x, y, z)
@@ -312,6 +333,16 @@ function Node.GetChildren(self)
 		table.insert(out, c)
 	end
 	return out
+end
+function Node.Clone(self)
+	local c = newNode(rawget(self, "_name"), rawget(self, "_class"))
+	for k, v in rawget(self, "_props") do
+		rawget(c, "_props")[k] = v
+	end
+	return c
+end
+function Node.IsA(self, class)
+	return rawget(self, "_class") == class
 end
 function Node.Destroy(self)
 	self.Parent = nil
@@ -505,7 +536,22 @@ local ReplicatedStorage = newNode("ReplicatedStorage", "ReplicatedStorage")
 local ServerScriptService = newNode("ServerScriptService", "ServerScriptService")
 local ServerStorage = newNode("ServerStorage", "ServerStorage")
 
+local SoundService = newNode("SoundService", "SoundService")
+rawget(SoundService, "_props").SetListener = function(_, kind, cf)
+	rawset(SoundService, "_listener", cf)
+end
+local ContentProvider = newNode("ContentProvider", "ContentProvider")
+rawget(ContentProvider, "_props").PreloadAsync = function(_, list, callback)
+	for _, item in list do
+		if callback then
+			callback(rawget(item, "_props").SoundId, Enum.AssetFetchStatus.Success)
+		end
+	end
+end
+
 local services = {
+	SoundService = SoundService,
+	ContentProvider = ContentProvider,
 	HttpService = HttpService,
 	DataStoreService = DataStoreService,
 	Players = Players,
