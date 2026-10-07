@@ -233,6 +233,9 @@ local function responderCost(vault, d, room, now: number): number?
 	if d.activity == "Sleeping" or d.activity == "Treatment" or d.health < d.maxHealth * RESPOND_HEALTH then
 		return nil
 	end
+	if d.shiftUntil and now < d.shiftUntil then
+		return nil -- the Overseer just put them where they are
+	end
 	local where = d.at or d.roomId
 	if where == room.id then
 		return nil -- already there (and counted)
@@ -460,17 +463,26 @@ local function decide(vault, d: any, now: number)
 			act = nil -- timed downtime is over
 		end
 	end
+	-- freshly assigned by the Overseer and at their post: only urgent needs interrupt the shift
+	local job = d.roomId and rooms[d.roomId]
+	local atJob = d.at == d.roomId and (act == "Working" or (act == "Relaxing" and not d.activityEnd))
+	local onShift = atJob and d.shiftUntil ~= nil and now < d.shiftUntil
+	local level = if onShift then "urgent" else "seek"
 	-- needs, most urgent first
 	if d.health < d.maxHealth * TREAT_THRESHOLD and startTreatment(vault, d, now) then
 		return
 	end
-	if n.Thirst < Needs.Defs.Thirst.seek and startDrink(vault, d, now) then
+	if n.Thirst < Needs.Defs.Thirst[level] and startDrink(vault, d, now) then
 		return
 	end
-	if n.Hunger < Needs.Defs.Hunger.seek and startEat(vault, d, now) then
+	if n.Hunger < Needs.Defs.Hunger[level] and startEat(vault, d, now) then
 		return
 	end
-	if n.Energy < Needs.Defs.Energy.seek and startSleep(vault, d, now) then
+	if n.Energy < Needs.Defs.Energy[level] and startSleep(vault, d, now) then
+		return
+	end
+	if onShift and job then
+		think[d.id] = math.min(now + WORK_CHECK, d.shiftUntil) -- breaks wait until the shift is done
 		return
 	end
 	-- check on a partner or close friend recovering in the Medbay
@@ -486,8 +498,6 @@ local function decide(vault, d: any, now: number)
 		end
 	end
 	-- otherwise: back to work / unwind
-	local job = d.roomId and rooms[d.roomId]
-	local atJob = d.at == d.roomId and (act == "Working" or (act == "Relaxing" and not d.activityEnd))
 	if atJob and job then
 		think[d.id] = now + WORK_CHECK
 		return
@@ -625,9 +635,9 @@ function LifeService.tick(vault, dt: number, now: number)
 			else
 				n[key] = math.max(0, n[key] - Needs.decayOf(d, key) * (if sleeping then 0.5 else 1) * dt / 60)
 			end
-			-- crossing the threshold triggers a decision now
-			local seek = Needs.Defs[key].seek
-			if before >= seek and n[key] < seek and not sleeping then
+			-- crossing a threshold (looking for it / urgent) triggers a decision now
+			local def = Needs.Defs[key]
+			if not sleeping and ((before >= def.seek and n[key] < def.seek) or (before >= def.urgent and n[key] < def.urgent)) then
 				think[id] = math.min(think[id] or now, now)
 			end
 			local stage = Needs.stage(key, n[key])

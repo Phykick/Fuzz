@@ -64,6 +64,10 @@ Config.STARVE_DAMAGE = 0.22 -- health / s while food or water is out
 Config.REGEN_LIVING = 0.12 -- health / s while relaxing in Living Quarters
 Config.REGEN_OTHER = 0.025 -- health / s anywhere else
 Config.MEDPATCH_HEAL = 0.45 -- share of max health one MedPatch restores
+-- Someone the Overseer assigns works this many seconds after arriving before a break: only an
+-- urgent need (Needs.Defs[].urgent), being badly hurt or danger pulls them away sooner, and the
+-- emergency dispatcher leaves them be. Shorter than any need takes to drop from seek to urgent.
+Config.ASSIGN_SHIFT = 90
 
 -- Wanderers wait outside the bunker until the Overseer lets them in.
 Config.QUEUE_MAX = 4

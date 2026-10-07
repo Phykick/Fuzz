@@ -186,12 +186,13 @@ end
 local function refreshPage(d, state)
 	local now = C.StateStore.now()
 	-- NEEDS
+	local onShift = d.shiftUntil ~= nil and now < d.shiftUntil and d.at == d.roomId
 	for _, key in Needs.LIST do
 		local row = needRows[key]
 		local v = (d.needs and d.needs[key]) or 100
 		local stage = Needs.stage(key, v)
 		row.set(v / 100, if not stage then T.good elseif stage.damage > 0 or stage.work < 0.6 then T.danger else T.accent)
-		row.state.Text = if stage then stage.label elseif v < Needs.Defs[key].seek then "Looking for it" else "Fine"
+		row.state.Text = if stage then stage.label elseif v < Needs.Defs[key].seek then (if onShift then "After this shift" else "Looking for it") else "Fine"
 		row.state.TextColor3 = if stage then T.danger elseif v < Needs.Defs[key].seek then T.accent else T.textMuted
 	end
 	local mkey = ""

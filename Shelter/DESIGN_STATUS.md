@@ -29,7 +29,7 @@ Status per section of the "Survival + Life Sim + Colony Management" brief. **Don
 | 10 | Living simulation | Done | Needs-driven routines. **New:** survivors elsewhere respond to fires, infestations and paid repairs (the "Sarah runs to Generator 2" story). |
 | 11 | Needs | Partial | Hunger, thirst, energy, health, happiness. Hygiene, social, fun, comfort, safety and stress slot into `Needs.Defs`, but each also needs rooms (bathroom, recreation). |
 | 12 | Personality | Done | Name, age, looks, 2 of 13 traits, 9 skills, job, relationships, memories. A written history is missing. |
-| 13 | Jobs | Done | Skills drive output per room. |
+| 13 | Jobs | Done | Skills drive output per room. Someone you assign works a 90-second shift before taking a break; only an urgent need, being badly hurt or danger pulls them away sooner, and emergency dispatch leaves them be. |
 | 14 | Assignment has consequences | Done | **New:** a partner or family member worries while someone is out exploring, and is relieved when they're back. |
 | 15 | Population is a liability | Done | More mouths, beds and power, and the pressure curve brings more incidents and bigger raids. |
 | 16 | Arrivals | Partial | Wanderers walk up and wait; you can let them in or turn them away after reading their profile. Quarantine, injured or sick arrivals are missing. |

@@ -137,8 +137,10 @@ function DwellerService.moveTo(vault, d, room, now: number): (boolean, string?)
 	d.activityEnd = nil
 	d.travel = { x0 = x0, row0 = row0, points = path.points, start = now, duration = path.duration }
 	d.arriveAt = now + path.duration
+	-- the Overseer's call: they give the post a proper shift before a non-urgent break
+	d.shiftUntil = d.arriveAt + Config.ASSIGN_SHIFT
 	if vault.rt.think then
-		vault.rt.think[d.id] = d.arriveAt + 20 -- the player's call: give it a moment before needs pull them away
+		vault.rt.think[d.id] = d.arriveAt
 	end
 	S.VaultService.dirty(vault)
 	DwellerService.push(vault, d)

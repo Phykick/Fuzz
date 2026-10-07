@@ -581,6 +581,93 @@ T.rename_is_saved = function()
 	check(v.rt.dirty, "rename marks the shelter for saving")
 end
 
+-- A room with a free work slot that isn't this survivor's own.
+local function openPost(v, d)
+	local Simulation = shared("Simulation")
+	local Defs = shared("RoomDefinitions").Types
+	for _, r in v.data.rooms do
+		if r.id ~= d.roomId and Defs[r.type].slots > 0 and r.type ~= "Elevator" and not r.incident
+			and #r.assigned < Simulation.capacity(r) then
+			return r
+		end
+	end
+	return nil
+end
+
+T.assigned_survivor_stays_at_post = function()
+	serverReady()
+	local p, v = joinLoaded(1)
+	local VS = svc("VaultService")
+	task.wait(5)
+	local d = dwellerNamed(v, "Theo")
+	local post = openPost(v, d)
+	check(post ~= nil, "a room with a free slot")
+	-- thirst just above where they'd go for a drink, hunger already below it: the old behaviour
+	-- walked them straight back out
+	d.needs = { Hunger = 44, Thirst = 52, Energy = 80 }
+	check(invoke(p, "Assign", { dwellerId = d.id, roomId = post.id }), "assigned")
+	local arrive = d.arriveAt
+	local left = nil
+	while VS.now() < arrive + 85 do
+		task.wait(0.5)
+		if VS.now() > arrive + 0.5 and (d.at ~= post.id or d.activity ~= "Working") then
+			left = VS.now() - arrive
+			break
+		end
+	end
+	check(left == nil, "stays at the post through the shift (left after " .. tostring(left) .. " s for " .. tostring(d.activity) .. ")")
+	-- after the shift, the break they've been putting off
+	check(waitFor(function()
+		return d.activity == "Eating" or d.activity == "Drinking"
+	end, 30), "takes the break once the shift is over (" .. tostring(d.activity) .. ")")
+	check(waitFor(function()
+		return d.at == post.id and d.activity == "Working"
+	end, 90), "and comes back to the post afterwards")
+end
+
+T.urgent_need_still_interrupts_a_shift = function()
+	serverReady()
+	local p, v = joinLoaded(1)
+	local VS = svc("VaultService")
+	task.wait(5)
+	local d = dwellerNamed(v, "Theo")
+	local post = openPost(v, d)
+	d.needs = { Hunger = 90, Thirst = 90, Energy = 90 }
+	check(invoke(p, "Assign", { dwellerId = d.id, roomId = post.id }), "assigned")
+	check(waitFor(function()
+		return d.at == post.id and VS.now() >= (d.arriveAt or 0)
+	end, 30), "arrived")
+	task.wait(10)
+	check(d.at == post.id and d.activity == "Working", "working")
+	d.needs.Thirst = 22.3 -- about to become very thirsty
+	check(waitFor(function()
+		return d.activity == "Drinking"
+	end, 5), "an urgent need still pulls them away (" .. tostring(d.activity) .. ")")
+end
+
+T.dispatch_leaves_fresh_assignments_alone = function()
+	serverReady()
+	local p, v = joinLoaded(1)
+	task.wait(5)
+	for _, o in v.data.dwellers do
+		o.needs = { Hunger = 100, Thirst = 100, Energy = 100 }
+	end
+	local d = dwellerNamed(v, "Theo")
+	local post = openPost(v, d)
+	check(invoke(p, "Assign", { dwellerId = d.id, roomId = post.id }), "assigned")
+	local living = roomOf(v, "Living")
+	check(svc("IncidentService").startFire(v, living, "test"), "fire elsewhere")
+	task.wait(6)
+	check(d.respond == nil and d.at == post.id, "the survivor the Overseer just placed isn't sent to the fire")
+	local others = 0
+	for _, o in v.data.dwellers do
+		if o.respond == living.id then
+			others += 1
+		end
+	end
+	check(others >= 1, "others still respond (" .. others .. ")")
+end
+
 T.audio_volumes_saved = function()
 	serverReady()
 	local p, v = joinLoaded(1)

@@ -16,6 +16,7 @@ export type NeedDef = {
 	icon: string,
 	decay: number, -- points per minute while awake
 	seek: number, -- start looking after it below this
+	urgent: number, -- below this they leave even a fresh assignment to see to it
 	traitField: string?, -- DwellerDefinitions trait factor that scales decay
 	stages: { Stage }, -- most severe first
 }
@@ -24,7 +25,7 @@ Needs.LIST = { "Hunger", "Thirst", "Energy" }
 
 Needs.Defs = {
 	Hunger = {
-		name = "Food", icon = "food", decay = 13, seek = 45, traitField = "hunger",
+		name = "Food", icon = "food", decay = 13, seek = 45, urgent = 20, traitField = "hunger",
 		stages = {
 			{ below = 0.5, label = "Starving", mood = -22, work = 0.4, damage = 0.25 },
 			{ below = 10, label = "Weak with hunger", mood = -16, work = 0.55, damage = 0 },
@@ -33,7 +34,7 @@ Needs.Defs = {
 		},
 	},
 	Thirst = {
-		name = "Water", icon = "water", decay = 18, seek = 50,
+		name = "Water", icon = "water", decay = 18, seek = 50, urgent = 22,
 		stages = {
 			{ below = 0.5, label = "Dehydrated", mood = -25, work = 0.35, damage = 0.35 },
 			{ below = 10, label = "Parched", mood = -18, work = 0.5, damage = 0 },
@@ -42,7 +43,7 @@ Needs.Defs = {
 		},
 	},
 	Energy = {
-		name = "Rest", icon = "happy", decay = 6, seek = 25, traitField = "energy",
+		name = "Rest", icon = "happy", decay = 6, seek = 25, urgent = 12, traitField = "energy",
 		stages = {
 			{ below = 0.5, label = "Collapsed", mood = -12, work = 0.3, damage = 0 },
 			{ below = 12, label = "Exhausted", mood = -8, work = 0.65, damage = 0 },
